@@ -1,0 +1,252 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/*
+ * Semantic tokens. Components only use these names, never raw palette colours, so a tenant's
+ * brand (set at runtime on <html> from its validated config) re-skins the whole app.
+ */
+@theme inline {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --color-bg: var(--td-bg);
+  --color-surface: var(--td-surface);
+  --color-surface-2: var(--td-surface2);
+  --color-surface-3: var(--td-surface3);
+  --color-line: var(--td-line);
+  --color-line-strong: var(--td-line-strong);
+  --color-fg: var(--td-fg);
+  --color-fg-muted: var(--td-fg-muted);
+  --color-fg-subtle: var(--td-fg-subtle);
+  --color-brand: var(--td-brand);
+  --color-brand-fg: var(--td-brand-fg);
+  --color-on-brand: var(--td-on-brand);
+  --color-accent: var(--td-accent);
+  --color-success: var(--td-success);
+  --color-warning: var(--td-warning);
+  --color-danger: var(--td-danger);
+  --color-info: var(--td-info);
+
+  --radius-sm: calc(0.375rem * var(--td-radius-scale));
+  --radius-md: calc(0.5rem * var(--td-radius-scale));
+  --radius-lg: calc(0.75rem * var(--td-radius-scale));
+  --radius-xl: calc(1rem * var(--td-radius-scale));
+  --radius-2xl: calc(1.25rem * var(--td-radius-scale));
+
+  --animate-fade-in: fade-in 0.24s ease-out both;
+  --animate-rise: rise 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-caret: caret 1s steps(2, start) infinite;
+  --animate-pulse-ring: pulse-ring 2s ease-out infinite;
+}
+
+/* Default brand (AlchmAI). Replaced at runtime by the active tenant. */
+:root,
+[data-theme='dark'] {
+  --td-radius-scale: 1;
+  --td-bg: #05070f;
+  --td-surface: #0b0d1a;
+  --td-surface2: #11132a;
+  --td-surface3: #1a1c3a;
+  --td-line: #a78bfa2e;
+  --td-line-strong: #a78bfa61;
+  --td-fg: #f3f4f6;
+  --td-fg-muted: #a1a8b8;
+  --td-fg-subtle: #828a99;
+  --td-brand: #7c3aed;
+  --td-brand-fg: #b49cfc;
+  --td-on-brand: #ffffff;
+  --td-accent: #22d3ee;
+  --td-success: #34d399;
+  --td-warning: #fbbf24;
+  --td-danger: #fb7185;
+  --td-info: #60a5fa;
+}
+
+[data-theme='light'] {
+  --td-bg: #f7f6fb;
+  --td-surface: #ffffff;
+  --td-surface2: #f4f2fa;
+  --td-surface3: #ebe7f6;
+  --td-line: #e5e3ee;
+  --td-line-strong: #d4ccf5;
+  --td-fg: #0f0f1e;
+  --td-fg-muted: #4b5563;
+  --td-fg-subtle: #636b78;
+  --td-brand: #7c3aed;
+  --td-brand-fg: #6d28d9;
+  --td-on-brand: #ffffff;
+  --td-accent: #0e7490;
+  --td-success: #047857;
+  --td-warning: #946200;
+  --td-danger: #e11d48;
+  --td-info: #2563eb;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html[data-theme='light'] {
+    color-scheme: light;
+  }
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-feature-settings: 'ss01', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100dvh;
+  }
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-line);
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-brand) 40%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-fg);
+    outline-offset: 2px;
+  }
+  button,
+  [role='button'] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  dialog {
+    color: inherit;
+  }
+  dialog::backdrop {
+    background: rgb(2 3 10 / 0.62);
+    backdrop-filter: blur(6px);
+  }
+  input[type='number'] {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Thin, theme-aware scrollbars. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--color-fg-subtle) 45%, transparent) transparent;
+  }
+}
+
+@utility glass {
+  background: color-mix(in oklab, var(--color-surface) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+
+@utility glass-strong {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-surface-2) 96%, transparent),
+    color-mix(in oklab, var(--color-surface) 96%, transparent)
+  );
+  border: 1px solid color-mix(in oklab, var(--color-brand-fg) 28%, transparent);
+  box-shadow: 0 0 48px -16px color-mix(in oklab, var(--color-brand) 45%, transparent);
+}
+
+@utility brand-gradient {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-brand) 0%,
+    color-mix(in oklab, var(--color-brand) 74%, var(--color-accent)) 100%
+  );
+}
+
+@utility text-gradient {
+  background-image: linear-gradient(95deg, var(--color-brand-fg) 10%, var(--color-accent) 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility line-gradient {
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-brand-fg) 70%, transparent),
+    color-mix(in oklab, var(--color-accent) 60%, transparent),
+    transparent
+  );
+}
+
+@utility hero-glow {
+  background:
+    radial-gradient(
+      62% 58% at 50% -6%,
+      color-mix(in oklab, var(--color-brand) 26%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      34% 42% at 6% 48%,
+      color-mix(in oklab, var(--color-accent) 9%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      30% 36% at 96% 30%,
+      color-mix(in oklab, var(--color-brand-fg) 10%, transparent),
+      transparent 70%
+    );
+}
+
+@utility pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes caret {
+  to {
+    visibility: hidden;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 55%, transparent);
+  }
+  80%,
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

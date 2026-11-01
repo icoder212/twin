@@ -1,0 +1,16 @@
+# Security headers for every response. Included in each location block because nginx drops
+# inherited add_header directives as soon as a location adds its own.
+#
+# Mirrors apps/web/config/security-headers.ts. Change both together.
+#   TWINDESK_API_ORIGIN        e.g. https://api.desktwin.example.com (empty while running the demo)
+#   $twindesk_frame_ancestors  set per host in default.conf (white-label embedding allow-list)
+
+add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' ${TWINDESK_API_ORIGIN}; frame-src 'self'; worker-src 'self'; manifest-src 'self'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors $twindesk_frame_ancestors; require-trusted-types-for 'script'; trusted-types 'none'" always;
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()" always;
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+add_header Cross-Origin-Resource-Policy "same-origin" always;
+# X-Frame-Options is deliberately not set: it cannot express an allow-list, and CSP
+# frame-ancestors (above) supersedes it in every supported browser.

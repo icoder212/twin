@@ -1,0 +1,18 @@
+{
+  "name": "@twindesk/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Platform-agnostic domain model, contracts, validation, security and compliance logic shared by web, mobile and embed clients.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./mock": "./src/mock/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  }
+}

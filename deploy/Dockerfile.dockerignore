@@ -1,0 +1,16 @@
+# Used by BuildKit for deploy/Dockerfile. Keeps secrets, history and local builds out of the context.
+**/node_modules
+**/dist
+**/coverage
+**/.vite
+.git
+.github
+.vscode
+.idea
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/.DS_Store
+playwright-report
+test-results

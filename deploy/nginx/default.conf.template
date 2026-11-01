@@ -1,0 +1,65 @@
+# Desk Twin web app. Rendered by the nginx image's envsubst step at container start
+# (only variables starting with TWINDESK_ are substituted; nginx's own $variables are untouched).
+
+# Which host pages may frame the app, per white-label hostname. The default comes from
+# TWINDESK_FRAME_ANCESTORS. Add one line per tenant that embeds the twin in its platform.
+map $host $twindesk_frame_ancestors {
+    default "${TWINDESK_FRAME_ANCESTORS}";
+    # twin.meridian.example   "'self' https://portal.meridian.example";
+    # twin.northbridge.example "'self' https://app.northbridge.example";
+}
+
+server {
+    listen 8080;
+    listen [::]:8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+    charset utf-8;
+    server_tokens off;
+    client_max_body_size 1k;
+
+    gzip on;
+    gzip_vary on;
+    gzip_comp_level 6;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json application/manifest+json image/svg+xml;
+
+    # A static site only ever needs GET and HEAD.
+    if ($request_method !~ ^(GET|HEAD)$) {
+        return 405;
+    }
+
+    # Never serve dotfiles such as .env or .git, except the standard .well-known directory.
+    location ~ /\.(?!well-known/) {
+        deny all;
+        return 404;
+    }
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Content-hashed build output: cache for a year.
+    location /assets/ {
+        include /etc/nginx/conf.d/security-headers.inc;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # The app shell must always be revalidated so users get new releases and new headers.
+    location = /index.html {
+        include /etc/nginx/conf.d/security-headers.inc;
+        add_header Cache-Control "no-store" always;
+    }
+
+    # Other public files (icons, manifest, theme bootstrap) and the SPA fallback.
+    location / {
+        include /etc/nginx/conf.d/security-headers.inc;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri $uri/ /index.html;
+    }
+}
