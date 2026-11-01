@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ConnectSourceInput } from '@twindesk/core';
+import type { ConnectSourceInput, ConnectedSource } from '@twindesk/core';
 import { qk } from '@/app/query-keys';
 import { toastError } from '@/lib/mutation';
 import { useApi } from '@/platform/api-context';
@@ -48,5 +48,38 @@ export function useSyncSource() {
       void queryClient.invalidateQueries({ queryKey: qk.sources });
     },
     onError: toastError('Could not fetch'),
+  });
+}
+
+export function useSetAlertOnDisconnect() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      api.sources.setAlertOnDisconnect(id, enabled),
+    // Flip the switch straight away; roll back if the server refuses.
+    onMutate: async ({ id, enabled }) => {
+      await queryClient.cancelQueries({ queryKey: qk.sources });
+      const previous = queryClient.getQueryData<ConnectedSource[]>(qk.sources);
+      queryClient.setQueryData<ConnectedSource[]>(qk.sources, (list) =>
+        list?.map((s) => (s.id === id ? { ...s, alertOnDisconnect: enabled } : s)),
+      );
+      return { previous };
+    },
+    onSuccess: (source) => {
+      toast.success(
+        source.alertOnDisconnect
+          ? `Disconnect alerts on for ${source.name}`
+          : `Disconnect alerts off for ${source.name}`,
+        source.alertOnDisconnect
+          ? 'A critical notification goes out through your delivery settings if it stops fetching.'
+          : undefined,
+      );
+    },
+    onError: (error, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(qk.sources, context.previous);
+      toastError('Could not change the alert')(error);
+    },
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: qk.sources }),
   });
 }

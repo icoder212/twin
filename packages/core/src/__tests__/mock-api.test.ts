@@ -76,6 +76,7 @@ describe('mock API', () => {
       kind: 'price',
       instrument: 'xauusd',
       level: 2400,
+      urgency: 'important',
       channels: ['in-app'],
     });
     expect((await api.alerts.list()).some((a) => a.instrument === 'XAUUSD')).toBe(true);
@@ -87,7 +88,13 @@ describe('mock API', () => {
   it('validates input with field-level errors', async () => {
     await signIn(api, 'alex.morgan@demo.alchmai.com');
     const error = (await api.alerts
-      .create({ kind: 'price', instrument: '<script>', level: -1, channels: [] })
+      .create({
+        kind: 'price',
+        instrument: '<script>',
+        level: -1,
+        urgency: 'important',
+        channels: [],
+      })
       .catch((e: unknown) => e)) as ApiError;
     expect(error.code).toBe('validation');
     expect(Object.keys(error.fieldErrors ?? {})).toEqual(

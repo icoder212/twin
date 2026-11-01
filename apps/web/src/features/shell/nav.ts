@@ -1,4 +1,5 @@
 import {
+  Bell,
   BellRing,
   Cable,
   Inbox,
@@ -88,6 +89,13 @@ export const NAV_ITEMS: NavItem[] = [
     group: 'Control',
     feature: 'sources',
     keywords: 'mt5 ctrader api keys data',
+  },
+  {
+    to: '/notifications',
+    label: 'Notifications',
+    icon: Bell,
+    group: 'Control',
+    keywords: 'whatsapp email push teams sms text briefing morning brief quiet hours escalation',
   },
   {
     to: '/audit',

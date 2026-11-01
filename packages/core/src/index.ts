@@ -5,6 +5,7 @@ export * from './domain/auth';
 export * from './domain/tenant';
 export * from './domain/twin';
 export * from './domain/automation';
+export * from './domain/notifications';
 export * from './domain/operations';
 export * from './domain/overview';
 
@@ -21,6 +22,10 @@ export * from './security/sanitize';
 export * from './security/pii';
 export * from './security/url';
 export * from './security/ids';
+
+// Notifications
+export * from './notifications/plan';
+export * from './notifications/render';
 
 // Compliance
 export * from './compliance/advice-checks';

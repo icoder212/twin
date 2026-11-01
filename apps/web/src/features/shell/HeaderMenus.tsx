@@ -1,11 +1,13 @@
 import {
   Bell,
   CircleAlert,
+  History,
   Info,
   LogOut,
   Monitor,
   Moon,
   Settings,
+  SlidersHorizontal,
   Sun,
   TriangleAlert,
   UserRound,
@@ -115,6 +117,20 @@ export function NotificationsMenu() {
               </DropdownMenuItem>
             );
           })}
+        </div>
+        <div className="grid grid-cols-2 gap-1 border-t border-line p-1">
+          <DropdownMenuItem
+            className="justify-center text-xs"
+            onSelect={() => void navigate('/notifications')}
+          >
+            <SlidersHorizontal aria-hidden /> Notification settings
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="justify-center text-xs"
+            onSelect={() => void navigate('/notifications?tab=log')}
+          >
+            <History aria-hidden /> Delivery log
+          </DropdownMenuItem>
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -1,8 +1,26 @@
-import { BellOff, BellRing, CircleAlert, Info, Plus, Trash2, TriangleAlert } from 'lucide-react';
+import {
+  BellOff,
+  BellRing,
+  CircleAlert,
+  Info,
+  Plus,
+  SlidersHorizontal,
+  Trash2,
+  TriangleAlert,
+} from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { formatRelative, safeUrl, type Alert, type AlertKind, type Severity } from '@twindesk/core';
+import {
+  CHANNEL_LABELS,
+  URGENCY_LABELS,
+  formatRelative,
+  safeUrl,
+  type Alert,
+  type AlertKind,
+  type Severity,
+} from '@twindesk/core';
 import { Can } from '@/features/auth/guards';
+import { CHANNEL_ICONS, URGENCY_META } from '@/features/notifications/notify-meta';
 import { cn } from '@/lib/cn';
 import { Page, PageHeader } from '@/shared/components/PageHeader';
 import { QueryView } from '@/shared/components/QueryView';
@@ -14,7 +32,7 @@ import { ConfirmDialog } from '@/shared/ui/dialog';
 import { EmptyState, Skeleton, ToneIcon } from '@/shared/ui/feedback';
 import { Switch } from '@/shared/ui/field';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/menu';
-import { ALERT_KINDS, CHANNEL_LABELS, KIND_META, STATUS_META } from './alert-meta';
+import { ALERT_KINDS, KIND_META, STATUS_META } from './alert-meta';
 import { NewAlertDialog } from './NewAlertDialog';
 import {
   useAlerts,
@@ -38,11 +56,18 @@ export function AlertsPage() {
         title="Alerts it watches"
         description="Prices at the levels you set, how much of your daily loss limit is used, releases about to publish, and trades outside your own session rule. Alerts describe what happened; the decision stays with you."
         actions={
-          <Can permission="alerts.manage">
-            <Button variant="primary" onClick={() => setCreating('price')}>
-              <Plus aria-hidden /> New alert
+          <>
+            <Button asChild variant="secondary">
+              <Link to="/notifications">
+                <SlidersHorizontal aria-hidden /> Delivery settings
+              </Link>
             </Button>
-          </Can>
+            <Can permission="alerts.manage">
+              <Button variant="primary" onClick={() => setCreating('price')}>
+                <Plus aria-hidden /> New alert
+              </Button>
+            </Can>
+          </>
         }
       />
 
@@ -148,7 +173,7 @@ function AlertList({ alerts, onCreate }: { alerts: Alert[]; onCreate: () => void
         <EmptyState
           icon={BellOff}
           title="No alerts of this kind yet"
-          description="Set one and it will watch for you, in the app and by push or email."
+          description="Set one and it will watch for you, in the app and on the channels you choose."
           action={
             <Can permission="alerts.manage">
               <Button size="sm" variant="primary" onClick={onCreate}>
@@ -178,6 +203,7 @@ function AlertRow({ alert }: { alert: Alert }) {
   const [confirming, setConfirming] = useState(false);
   const meta = KIND_META[alert.kind];
   const status = STATUS_META[alert.status];
+  const urgency = URGENCY_META[alert.urgency];
   const watching = alert.status !== 'paused';
 
   return (
@@ -199,9 +225,23 @@ function AlertRow({ alert }: { alert: Alert }) {
           </div>
           <p className="mt-0.5 text-[13px] text-fg-muted">{alert.condition}</p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {alert.channels.map((c) => (
-              <Badge key={c}>{CHANNEL_LABELS[c]}</Badge>
-            ))}
+            <Badge tone={urgency.tone}>
+              <urgency.icon aria-hidden />
+              {URGENCY_LABELS[alert.urgency].label}
+            </Badge>
+            <ul className="flex flex-wrap items-center gap-1.5" aria-label="Sends to">
+              {alert.channels.map((c) => {
+                const Icon = CHANNEL_ICONS[c];
+                return (
+                  <li key={c}>
+                    <Badge>
+                      <Icon aria-hidden />
+                      {CHANNEL_LABELS[c]}
+                    </Badge>
+                  </li>
+                );
+              })}
+            </ul>
             <span className="text-xs text-fg-subtle">
               {alert.lastTriggeredAt
                 ? `Last triggered ${formatRelative(alert.lastTriggeredAt, locale)}`

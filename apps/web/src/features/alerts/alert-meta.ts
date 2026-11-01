@@ -1,5 +1,5 @@
 import { CalendarClock, Clock, Gauge, Target, type LucideIcon } from 'lucide-react';
-import type { Alert, AlertChannel, AlertKind, Tone } from '@twindesk/core';
+import type { Alert, AlertKind, Tone, Urgency } from '@twindesk/core';
 
 export const ALERT_KINDS: ReadonlyArray<{
   kind: AlertKind;
@@ -43,11 +43,11 @@ export const KIND_META = Object.fromEntries(ALERT_KINDS.map((k) => [k.kind, k]))
   (typeof ALERT_KINDS)[number]
 >;
 
-export const CHANNEL_LABELS: Record<AlertChannel, string> = {
-  'in-app': 'In-app',
-  email: 'Email',
-  push: 'Push',
-};
+/** Starting urgency for a new alert. Using most of a limit is critical; everything else is important. */
+export function defaultUrgency(kind: AlertKind, thresholdPct?: number): Urgency {
+  if (kind === 'loss-limit' && (thresholdPct ?? 0) >= 90) return 'critical';
+  return 'important';
+}
 
 export const STATUS_META: Record<Alert['status'], { label: string; tone: Tone }> = {
   active: { label: 'Watching', tone: 'success' },

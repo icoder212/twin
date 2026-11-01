@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { idSchema, isoDateTimeSchema, severitySchema } from './common';
 import { complianceCheckResultSchema } from './twin';
 import { roleSchema } from './auth';
+import { deliveryChannelSchema, urgencySchema } from './notifications';
 
 // ---------------------------------------------------------------------------
 // Shortcuts
@@ -31,7 +32,8 @@ export type Shortcut = z.infer<typeof shortcutSchema>;
 export const alertKindSchema = z.enum(['price', 'loss-limit', 'release', 'session-rule']);
 export type AlertKind = z.infer<typeof alertKindSchema>;
 
-export const alertChannelSchema = z.enum(['in-app', 'email', 'push']);
+/** Alerts go out on the same channels as every other notification. */
+export const alertChannelSchema = deliveryChannelSchema;
 export type AlertChannel = z.infer<typeof alertChannelSchema>;
 
 export const alertSchema = z.object({
@@ -42,6 +44,7 @@ export const alertSchema = z.object({
   instrument: z.string().max(20).optional(),
   level: z.number().optional(),
   thresholdPct: z.number().min(0).max(100).optional(),
+  urgency: urgencySchema,
   channels: z.array(alertChannelSchema).min(1),
   status: z.enum(['active', 'paused', 'triggered']),
   lastTriggeredAt: isoDateTimeSchema.optional(),
@@ -60,21 +63,25 @@ export const createAlertInputSchema = z.discriminatedUnion('kind', [
     kind: z.literal('price'),
     instrument: instrumentSchema,
     level: z.coerce.number().positive('Level must be above zero').max(1_000_000),
+    urgency: urgencySchema,
     channels: z.array(alertChannelSchema).min(1, 'Pick at least one channel'),
   }),
   z.object({
     kind: z.literal('loss-limit'),
     thresholdPct: z.coerce.number().int().min(10).max(100),
+    urgency: urgencySchema,
     channels: z.array(alertChannelSchema).min(1, 'Pick at least one channel'),
   }),
   z.object({
     kind: z.literal('release'),
     minutesBefore: z.coerce.number().int().min(1).max(120),
     impact: z.enum(['high', 'medium']),
+    urgency: urgencySchema,
     channels: z.array(alertChannelSchema).min(1, 'Pick at least one channel'),
   }),
   z.object({
     kind: z.literal('session-rule'),
+    urgency: urgencySchema,
     channels: z.array(alertChannelSchema).min(1, 'Pick at least one channel'),
   }),
 ]);
@@ -157,6 +164,28 @@ export type SourceProvider = z.infer<typeof sourceProviderSchema>;
 export const sourceCategorySchema = z.enum(['platform', 'market-data', 'your-day', 'firm-systems']);
 export type SourceCategory = z.infer<typeof sourceCategorySchema>;
 
+export const sourceCheckSchema = z.enum(['ok', 'slow', 'failed', 'idle']);
+export type SourceCheck = z.infer<typeof sourceCheckSchema>;
+
+export const sourceHealthSchema = z.object({
+  /** Share of scheduled fetches that succeeded in the last 24 hours. */
+  successRate24h: z.number().min(0).max(100),
+  /** One result per hour for the last 24 hours, oldest first. */
+  hourly: z.array(sourceCheckSchema).max(24),
+  /** Typical delay between the provider and Desk Twin, in milliseconds. */
+  latencyMs: z.number().int().nonnegative().optional(),
+  nextSyncAt: isoDateTimeSchema.optional(),
+  /** Automatic retries after a failed fetch. */
+  retry: z
+    .object({
+      attempt: z.number().int().min(1),
+      maxAttempts: z.number().int().min(1),
+      nextAt: isoDateTimeSchema,
+    })
+    .optional(),
+});
+export type SourceHealth = z.infer<typeof sourceHealthSchema>;
+
 export const connectedSourceSchema = z.object({
   id: idSchema,
   provider: sourceProviderSchema,
@@ -172,6 +201,10 @@ export const connectedSourceSchema = z.object({
   /** Hours since the last successful fetch above which data is marked stale. */
   staleAfterHours: z.number().positive(),
   errorMessage: z.string().max(300).optional(),
+  /** Present once a source has been connected. */
+  health: sourceHealthSchema.optional(),
+  /** Sends a critical notification when the source stops fetching. */
+  alertOnDisconnect: z.boolean(),
 });
 export type ConnectedSource = z.infer<typeof connectedSourceSchema>;
 
@@ -214,6 +247,13 @@ export const AUDIT_ACTIONS = [
   'alert.removed',
   'settings.changed',
   'data.exported',
+  'notification.sent',
+  'notification.escalated',
+  'notification.acknowledged',
+  'notification.settings-changed',
+  'notification.policy-changed',
+  'notification.contact-verified',
+  'notification.contact-removed',
 ] as const;
 export const auditActionSchema = z.enum(AUDIT_ACTIONS);
 export type AuditAction = z.infer<typeof auditActionSchema>;
@@ -238,7 +278,18 @@ export type AuditEvent = z.infer<typeof auditEventSchema>;
 export const auditQuerySchema = z.object({
   search: z.string().trim().max(100).optional(),
   action: z
-    .enum(['all', 'auth', 'twin', 'approval', 'automation', 'source', 'alert', 'settings', 'data'])
+    .enum([
+      'all',
+      'auth',
+      'twin',
+      'approval',
+      'automation',
+      'source',
+      'alert',
+      'notification',
+      'settings',
+      'data',
+    ])
     .default('all'),
   outcome: z.enum(['all', 'success', 'failure', 'blocked']).default('all'),
 });

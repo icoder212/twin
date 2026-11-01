@@ -11,15 +11,16 @@ live in `packages/core/src/tenants/presets.ts` (AlchmAI, Northbridge, Meridian).
 the backend serves the config for each hostname or embed key, and the client validates it with
 the same schema before use.
 
-| Section    | What it controls                                                                          |
-| ---------- | ----------------------------------------------------------------------------------------- |
-| `brand`    | Full logo per scheme, wordmark text, square mark image, whether the sign-in art shows     |
-| `theme`    | Default scheme, radius scale, and full dark and light token sets                          |
-| `features` | Which modules exist: twin, tasks, workflows, shortcuts, alerts, approvals, sources, audit |
-| `security` | Idle timeout and warning, session lifetime, MFA, SSO providers, lockout attempts          |
-| `locale`   | Language, currency and timezone for all formatting                                        |
-| `legal`    | Disclaimer shown in the app, support address, privacy and terms links                     |
-| `embed`    | Host origins allowed to frame the twin and talk to it                                     |
+| Section         | What it controls                                                                          |
+| --------------- | ----------------------------------------------------------------------------------------- |
+| `brand`         | Full logo per scheme, wordmark text, square mark image, whether the sign-in art shows     |
+| `theme`         | Default scheme, radius scale, and full dark and light token sets                          |
+| `features`      | Which modules exist: twin, tasks, workflows, shortcuts, alerts, approvals, sources, audit |
+| `security`      | Idle timeout and warning, session lifetime, MFA, SSO providers, lockout attempts          |
+| `locale`        | Language, currency and timezone for all formatting                                        |
+| `legal`         | Disclaimer shown in the app, support address, privacy and terms links                     |
+| `notifications` | Channels the firm allows (e.g. no WhatsApp), minimal wording, supervisor escalation       |
+| `embed`         | Host origins allowed to frame the twin and talk to it                                     |
 
 Disabled features disappear from navigation and their routes return "not found"; the API must
 reject them too.

@@ -8,6 +8,8 @@ import type {
   ConnectedSource,
   Notification,
   Shortcut,
+  SourceCheck,
+  SourceHealth,
 } from '../domain/operations';
 import type {
   ActionItem,
@@ -680,6 +682,7 @@ export function seedAlerts(now: number): Alert[] {
     {
       id: 'al_eurusd',
       kind: 'price',
+      urgency: 'important',
       name: 'EURUSD at 1.0900',
       condition: 'EURUSD trades at 1.0900',
       instrument: 'EURUSD',
@@ -691,6 +694,7 @@ export function seedAlerts(now: number): Alert[] {
     {
       id: 'al_gbpusd',
       kind: 'price',
+      urgency: 'important',
       name: 'GBPUSD at 1.2700',
       condition: 'GBPUSD trades at 1.2700',
       instrument: 'GBPUSD',
@@ -702,6 +706,7 @@ export function seedAlerts(now: number): Alert[] {
     {
       id: 'al_half',
       kind: 'loss-limit',
+      urgency: 'important',
       name: 'Half of daily loss limit used',
       condition: '50% of your 5% daily loss limit is used',
       thresholdPct: 50,
@@ -712,6 +717,7 @@ export function seedAlerts(now: number): Alert[] {
     {
       id: 'al_most',
       kind: 'loss-limit',
+      urgency: 'critical',
       name: 'Most of daily loss limit used',
       condition: '80% of your 5% daily loss limit is used',
       thresholdPct: 80,
@@ -722,6 +728,7 @@ export function seedAlerts(now: number): Alert[] {
     {
       id: 'al_release',
       kind: 'release',
+      urgency: 'important',
       name: 'High-impact release in 10 minutes',
       condition: 'A high-impact release is 10 minutes away',
       channels: ['in-app', 'push'],
@@ -732,6 +739,7 @@ export function seedAlerts(now: number): Alert[] {
     {
       id: 'al_session',
       kind: 'session-rule',
+      urgency: 'important',
       name: 'Trading outside your session rule',
       condition: 'A trade opens outside London 07:00 to 16:30',
       channels: ['in-app', 'email'],
@@ -878,12 +886,39 @@ export function seedApprovals(user: User, now: number): Approval[] {
 // Connected sources
 // ---------------------------------------------------------------------------
 
+/** Plausible 24-hour fetch history for a source, stable across reloads. */
+export function seedSourceHealth(
+  id: string,
+  status: ConnectedSource['status'],
+  now: number,
+): SourceHealth | undefined {
+  if (status === 'not-connected') return undefined;
+  if (status === 'error') {
+    return { successRate24h: 0, hourly: Array<SourceCheck>(24).fill('failed') };
+  }
+  let seed = 0;
+  for (const ch of id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rand = seededRandom(seed);
+  const hourly = Array.from({ length: 24 }, (): SourceCheck => (rand() < 0.06 ? 'slow' : 'ok'));
+  return {
+    successRate24h: 100,
+    hourly,
+    latencyMs: Math.round(150 + rand() * 900),
+    nextSyncAt: minutesAgo(-Math.round(3 + rand() * 40), now),
+  };
+}
+
 export function seedSources(now: number): ConnectedSource[] {
   const src = (
-    s: Omit<ConnectedSource, 'staleAfterHours'> & { staleAfterHours?: number },
+    s: Omit<ConnectedSource, 'staleAfterHours' | 'alertOnDisconnect'> & {
+      staleAfterHours?: number;
+      alertOnDisconnect?: boolean;
+    },
   ): ConnectedSource => ({
     staleAfterHours: 24,
+    alertOnDisconnect: false,
     ...s,
+    health: s.health ?? seedSourceHealth(s.id, s.status, now),
   });
   return [
     src({
@@ -899,6 +934,7 @@ export function seedSources(now: number): ConnectedSource[] {
       lastSyncAt: minutesAgo(6, now),
       recordCount: 1284,
       staleAfterHours: 1,
+      alertOnDisconnect: true,
     }),
     src({
       id: 'src_ctrader',
@@ -913,6 +949,23 @@ export function seedSources(now: number): ConnectedSource[] {
       lastSyncAt: minutesAgo(64, now),
       recordCount: 312,
       staleAfterHours: 2,
+      // The provider has been timing out for the last hour; retries are running.
+      health: {
+        successRate24h: 83,
+        hourly: [
+          ...Array<SourceCheck>(16).fill('ok'),
+          'slow',
+          'ok',
+          'ok',
+          'slow',
+          'ok',
+          'failed',
+          'failed',
+          'failed',
+        ],
+        latencyMs: 2400,
+        retry: { attempt: 2, maxAttempts: 5, nextAt: minutesAgo(-4, now) },
+      },
     }),
     src({
       id: 'src_dxtrade',
@@ -962,6 +1015,7 @@ export function seedSources(now: number): ConnectedSource[] {
       lastSyncAt: minutesAgo(0.2, now),
       recordCount: 18_420,
       staleAfterHours: 0.1,
+      alertOnDisconnect: true,
     }),
     src({
       id: 'src_cal',
@@ -1045,6 +1099,8 @@ export function seedSources(now: number): ConnectedSource[] {
       lastSyncAt: minutesAgo(60 * 24 * 16, now),
       recordCount: 12,
       staleAfterHours: 24 * 90,
+      // Documents are fetched when they change, not on a schedule.
+      health: { successRate24h: 100, hourly: Array<SourceCheck>(24).fill('idle') },
     }),
     src({
       id: 'src_rules',
@@ -1059,6 +1115,7 @@ export function seedSources(now: number): ConnectedSource[] {
       lastSyncAt: minutesAgo(2, now),
       recordCount: 5_112,
       staleAfterHours: 1,
+      alertOnDisconnect: true,
     }),
     src({
       id: 'src_crm',

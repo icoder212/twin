@@ -18,3 +18,8 @@ export function createId(prefix: string): string {
 export function createAnswerId(): string {
   return `DT-${randomChars(6)}`;
 }
+
+/** Reference quoted in every notification, e.g. NT-K7P2QA. */
+export function createNotificationRef(): string {
+  return `NT-${randomChars(6)}`;
+}

@@ -6,7 +6,13 @@ import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Tooltip } from '@/shared/ui/menu';
 import { toast } from '@/shared/ui/toast';
-import { actorRoleLabel, actorRoleTone, OUTCOME_LABEL, OUTCOME_TONE } from './audit-labels';
+import {
+  ACTION_LABELS,
+  actorRoleLabel,
+  actorRoleTone,
+  OUTCOME_LABEL,
+  OUTCOME_TONE,
+} from './audit-labels';
 
 function CopyRef({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
@@ -93,7 +99,8 @@ export function AuditList({ items }: { items: AuditEvent[] }) {
                   <Actor event={e} />
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap">
-                  <code className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[12px] text-fg-muted">
+                  <span className="block text-[13px] text-fg">{ACTION_LABELS[e.action]}</span>
+                  <code className="mt-1 inline-block rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[11.5px] text-fg-muted">
                     {e.action}
                   </code>
                 </td>
@@ -125,6 +132,7 @@ export function AuditList({ items }: { items: AuditEvent[] }) {
               <time dateTime={e.at} className="font-mono tabular">
                 {formatDateTime(e.at, locale)}
               </time>
+              <span className="text-fg-muted">{ACTION_LABELS[e.action]}</span>
               <code className="font-mono">{e.action}</code>
               {e.ref ? <CopyRef value={e.ref} /> : null}
             </div>

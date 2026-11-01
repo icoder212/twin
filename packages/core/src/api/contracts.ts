@@ -20,6 +20,22 @@ import type {
   Notification,
   Shortcut,
 } from '../domain/operations';
+import type {
+  Briefing,
+  BriefingKind,
+  BriefingSchedule,
+  ConfirmVerificationInput,
+  Contact,
+  ContactChannel,
+  NotificationEvent,
+  NotificationPolicy,
+  NotificationPolicyInput,
+  NotificationPreferences,
+  StartVerificationInput,
+  UpdateBriefingInput,
+  Urgency,
+  VerificationChallenge,
+} from '../domain/notifications';
 import type { DeskOverview } from '../domain/overview';
 import type { AskRequest, Suggestion, TwinStreamEvent } from '../domain/twin';
 
@@ -89,6 +105,35 @@ export interface SourcesApi {
   connect(input: ConnectSourceInput): Promise<ConnectedSource>;
   revoke(id: string): Promise<ConnectedSource>;
   sync(id: string): Promise<ConnectedSource>;
+  /** Sends a critical notification whenever this source stops fetching. */
+  setAlertOnDisconnect(id: string, enabled: boolean): Promise<ConnectedSource>;
+}
+
+/**
+ * Where notifications go. Preferences, contacts and the delivery log belong to the signed-in
+ * user; the policy belongs to the firm and only administrators change it.
+ */
+export interface NotificationsApi {
+  preferences(): Promise<NotificationPreferences>;
+  updatePreferences(input: NotificationPreferences): Promise<NotificationPreferences>;
+  contacts(): Promise<Contact[]>;
+  /** Sends a 6-digit code to the address; nothing is sent to it until the code is confirmed. */
+  startVerification(input: StartVerificationInput): Promise<VerificationChallenge>;
+  confirmVerification(input: ConfirmVerificationInput): Promise<Contact>;
+  removeContact(channel: ContactChannel): Promise<void>;
+  policy(): Promise<NotificationPolicy>;
+  updatePolicy(input: NotificationPolicyInput): Promise<NotificationPolicy>;
+  /** Delivery log, newest first. */
+  events(): Promise<NotificationEvent[]>;
+  acknowledge(id: string): Promise<NotificationEvent>;
+  sendTest(urgency: Urgency): Promise<NotificationEvent>;
+}
+
+export interface BriefingsApi {
+  list(): Promise<BriefingSchedule[]>;
+  update(input: UpdateBriefingInput): Promise<BriefingSchedule>;
+  preview(kind: BriefingKind): Promise<Briefing>;
+  sendNow(kind: BriefingKind): Promise<NotificationEvent>;
 }
 
 export interface AuditApi {
@@ -106,5 +151,7 @@ export interface TwinDeskApi {
   alerts: AlertsApi;
   approvals: ApprovalsApi;
   sources: SourcesApi;
+  notifications: NotificationsApi;
+  briefings: BriefingsApi;
   audit: AuditApi;
 }

@@ -9,7 +9,15 @@ import type {
   Notification,
   Shortcut,
 } from '../domain/operations';
+import type {
+  BriefingSchedule,
+  Contact,
+  NotificationEvent,
+  NotificationPolicy,
+  NotificationPreferences,
+} from '../domain/notifications';
 import type { ActionItem } from '../domain/overview';
+import type { TenantConfig } from '../domain/tenant';
 import type { KeyValueStore } from '../storage/kv';
 import {
   seedActionItems,
@@ -21,10 +29,16 @@ import {
   seedShortcuts,
   seedSources,
 } from './fixtures';
+import {
+  seedBriefings,
+  seedContacts,
+  seedNotificationEvents,
+  seedNotificationPreferences,
+} from './notify-fixtures';
 import { DEMO_USERS } from './users';
 
 export interface UserData {
-  version: 1;
+  version: 2;
   deskType: DeskType;
   automations: Automation[];
   runs: Record<string, AutomationRun[]>;
@@ -35,6 +49,12 @@ export interface UserData {
   sources: ConnectedSource[];
   actionItems: ActionItem[];
   notes: Array<{ id: string; text: string; at: string }>;
+  notify: {
+    preferences: NotificationPreferences;
+    contacts: Contact[];
+    events: NotificationEvent[];
+    briefings: BriefingSchedule[];
+  };
 }
 
 const PREFIX = 'twindesk.mock.v1';
@@ -47,10 +67,12 @@ const MAX_AUDIT = 500;
 export class MockDb {
   private cache = new Map<string, UserData>();
   private auditCache = new Map<string, AuditEvent[]>();
+  private policyCache = new Map<string, NotificationPolicy>();
 
   constructor(
     private readonly store: KeyValueStore,
     private readonly now: () => Date,
+    private readonly tenant: TenantConfig,
   ) {}
 
   private userKey(tenantId: string, userId: string) {
@@ -59,6 +81,34 @@ export class MockDb {
 
   private auditKey(tenantId: string) {
     return `${PREFIX}.${tenantId}.audit`;
+  }
+
+  private policyKey(tenantId: string) {
+    return `${PREFIX}.${tenantId}.policy`;
+  }
+
+  /** The firm's notification policy: the tenant's defaults until an administrator changes it. */
+  policy(): NotificationPolicy {
+    const tenantId = this.tenant.id;
+    const cached = this.policyCache.get(tenantId);
+    if (cached) return cached;
+    let policy: NotificationPolicy | undefined;
+    const raw = this.store.get(this.policyKey(tenantId));
+    if (raw) {
+      try {
+        policy = JSON.parse(raw) as NotificationPolicy;
+      } catch {
+        policy = undefined;
+      }
+    }
+    policy ??= { ...this.tenant.notifications };
+    this.policyCache.set(tenantId, policy);
+    return policy;
+  }
+
+  savePolicy(policy: NotificationPolicy): void {
+    this.policyCache.set(this.tenant.id, policy);
+    this.store.set(this.policyKey(this.tenant.id), JSON.stringify(policy));
   }
 
   forUser(user: User): UserData {
@@ -70,7 +120,7 @@ export class MockDb {
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as UserData;
-        if (parsed.version === 1) data = parsed;
+        if (parsed.version === 2) data = parsed;
       } catch {
         // Corrupt demo state: reseed below.
       }
@@ -115,15 +165,18 @@ export class MockDb {
     for (const key of [...this.cache.keys()])
       if (key.startsWith(`${PREFIX}.${tenantId}.`)) this.cache.delete(key);
     this.auditCache.delete(tenantId);
+    this.policyCache.delete(tenantId);
     for (const u of DEMO_USERS) this.store.remove(this.userKey(tenantId, u.id));
     this.store.remove(this.auditKey(tenantId));
+    this.store.remove(this.policyKey(tenantId));
   }
 
   private seed(user: User): UserData {
     const now = this.now();
     const { automations, runs } = seedAutomations(user, now);
+    const policy = this.policy();
     return {
-      version: 1,
+      version: 2,
       deskType: user.deskType,
       automations,
       runs,
@@ -134,6 +187,12 @@ export class MockDb {
       sources: seedSources(now.getTime()),
       actionItems: seedActionItems(),
       notes: [],
+      notify: {
+        preferences: seedNotificationPreferences(policy),
+        contacts: seedContacts(user, policy, now.getTime()),
+        events: seedNotificationEvents(user, policy, now.getTime()),
+        briefings: seedBriefings(policy, now.getTime()),
+      },
     };
   }
 }

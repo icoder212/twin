@@ -11,7 +11,15 @@ import { ConfirmDialog } from '@/shared/ui/dialog';
 import { ToneIcon } from '@/shared/ui/feedback';
 import { Tooltip } from '@/shared/ui/menu';
 import { useRevokeSource, useSyncSource } from './queries';
-import { ACCESS_META, AUTH_LABELS, PROVIDER_ICONS, STATUS_META, isStale } from './source-meta';
+import { DisconnectAlert, SourceHealth } from './SourceHealth';
+import {
+  ACCESS_META,
+  AUTH_LABELS,
+  PROVIDER_ICONS,
+  STATUS_META,
+  formatAsOf,
+  isStale,
+} from './source-meta';
 
 export function SourceCard({
   source,
@@ -52,6 +60,11 @@ export function SourceCard({
             {stale ? (
               <Badge tone="warning" className="ml-1">
                 Stale
+              </Badge>
+            ) : null}
+            {source.health?.retry ? (
+              <Badge tone="warning" className="ml-1">
+                Retrying
               </Badge>
             ) : null}
           </p>
@@ -96,10 +109,16 @@ export function SourceCard({
         </p>
       ) : null}
 
+      <SourceHealth source={source} />
+
       <div className="mt-auto pt-4">
         {source.lastSyncAt ? (
           <p className="text-xs text-fg-subtle">
-            Last fetch {formatRelative(source.lastSyncAt, locale)}
+            Data as of{' '}
+            <time dateTime={source.lastSyncAt} className="text-fg-muted tabular">
+              {formatAsOf(source.lastSyncAt, locale)}
+            </time>{' '}
+            ({formatRelative(source.lastSyncAt, locale)})
             {source.recordCount !== undefined
               ? ` · ${formatNumber(source.recordCount, locale)} records`
               : ''}
@@ -108,6 +127,8 @@ export function SourceCard({
         ) : (
           <p className="text-xs text-fg-subtle">Not fetched yet</p>
         )}
+
+        <DisconnectAlert source={source} />
 
         {manage ? (
           <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">

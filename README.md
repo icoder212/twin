@@ -44,6 +44,15 @@ builds; a build pointed at the real API contains none of them.
 - **Roles:** sign in as Priya (compliance) to see firm-wide audit, CSV export and read-only
   automation screens.
 - **Idle sign-out:** after 15 minutes without activity (10 for Northbridge), with a countdown.
+- **Notifications:** _Notifications_ chooses where each urgency goes (app, phone push, email,
+  WhatsApp, Teams, text), quiet hours, a daily summary, escalation and minimal wording, with a
+  preview of each message. _Send a test critical notification_, then watch it escalate in the
+  delivery log after 5 minutes unless you acknowledge it. Add a contact with code `246810`.
+  Under Meridian, WhatsApp and texts are turned off by the firm policy.
+- **Briefings:** the morning brief and end-of-day recap run on a schedule, with a preview and
+  _Send now_.
+- **Source health:** _Connected sources_ shows 24 hours of fetch history, retries, and an
+  alert when a source stops fetching.
 
 ## Scripts
 

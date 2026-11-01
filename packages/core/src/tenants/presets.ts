@@ -63,6 +63,12 @@ const alchmai = tenantConfigSchema.parse({
       info: '#2563eb',
     },
   },
+  notifications: {
+    allowedChannels: ['in-app', 'push', 'email', 'whatsapp', 'teams', 'sms'],
+    requireMinimalContent: false,
+    allowSupervisorEscalation: true,
+    supervisorLabel: 'Risk desk',
+  },
   features: {
     twin: true,
     tasks: true,
@@ -139,6 +145,12 @@ const northbridge = tenantConfigSchema.parse({
       info: '#0369a1',
     },
   },
+  notifications: {
+    allowedChannels: ['in-app', 'push', 'email', 'whatsapp', 'sms'],
+    requireMinimalContent: false,
+    allowSupervisorEscalation: true,
+    supervisorLabel: 'Trader support',
+  },
   features: { ...alchmai.features, workflows: false },
   security: { ...alchmai.security, idleTimeoutMinutes: 10, ssoProviders: ['microsoft'] },
   locale: { language: 'en-GB', currency: 'GBP', timezone: 'Europe/London' },
@@ -197,6 +209,13 @@ const meridian = tenantConfigSchema.parse({
       danger: '#f87171',
       info: '#7dd3fc',
     },
+  },
+  notifications: {
+    // A regulated broker: no WhatsApp or texts, and only a neutral notice leaves the app.
+    allowedChannels: ['in-app', 'push', 'email', 'teams'],
+    requireMinimalContent: true,
+    allowSupervisorEscalation: true,
+    supervisorLabel: 'Dealing desk supervisor',
   },
   features: { ...alchmai.features, tasks: false, workflows: false },
   security: { ...alchmai.security, idleTimeoutMinutes: 20, ssoProviders: ['saml', 'microsoft'] },

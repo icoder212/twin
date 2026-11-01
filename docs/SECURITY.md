@@ -61,6 +61,19 @@ preview` and nginx (`apps/web/config/security-headers.ts`, `deploy/nginx`). The 
 - API keys for connected sources are sent once to the vault endpoint and never kept in client
   state, logs or responses. Only read-only keys are accepted, with explicit confirmation.
 
+**Notifications outside the app**
+
+- Every address is verified with a 6-digit code before use; WhatsApp and text messages also
+  record consent with the date. Addresses are shown masked.
+- The firm policy decides which channels exist. WhatsApp and texts are one-way: replies are
+  never acted on, messages come from pre-approved templates, and every delivery is logged in
+  the delivery log and the audit log, so off-channel communication rules are met.
+- Minimal wording (the default, and enforceable by the firm) keeps figures, names and account
+  details off lock screens and shared inboxes.
+- Messages never contain sign-in links and say that the firm never asks for passwords or codes,
+  which limits phishing that imitates them.
+- Message templates pass the same advice checks as answers; a test enforces it.
+
 **Authorisation and isolation**
 
 - Role-to-permission map in `core/security/rbac.ts`, used for UI gating. The mock adapter

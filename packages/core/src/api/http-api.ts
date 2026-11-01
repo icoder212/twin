@@ -9,6 +9,15 @@ import {
   notificationSchema,
   shortcutSchema,
 } from '../domain/operations';
+import {
+  briefingScheduleSchema,
+  briefingSchema,
+  contactSchema,
+  notificationEventSchema,
+  notificationPolicySchema,
+  notificationPreferencesSchema,
+  verificationChallengeSchema,
+} from '../domain/notifications';
 import { deskOverviewSchema } from '../domain/overview';
 import { suggestionSchema, twinStreamEventSchema } from '../domain/twin';
 import type { TwinDeskApi } from './contracts';
@@ -163,6 +172,77 @@ export function createHttpApi(options: HttpClientOptions): TwinDeskApi {
         http.request(`/v1/sources/${id(sourceId)}/sync`, {
           method: 'POST',
           schema: connectedSourceSchema,
+        }),
+      setAlertOnDisconnect: (sourceId, enabled) =>
+        http.request(`/v1/sources/${id(sourceId)}/alerting`, {
+          method: 'PATCH',
+          body: { enabled },
+          schema: connectedSourceSchema,
+        }),
+    },
+    notifications: {
+      preferences: () =>
+        http.request('/v1/notifications/preferences', { schema: notificationPreferencesSchema }),
+      updatePreferences: (body) =>
+        http.request('/v1/notifications/preferences', {
+          method: 'PUT',
+          body,
+          schema: notificationPreferencesSchema,
+        }),
+      contacts: () =>
+        http.request('/v1/notifications/contacts', { schema: z.array(contactSchema) }),
+      startVerification: (body) =>
+        http.request('/v1/notifications/contacts/verify', {
+          method: 'POST',
+          body,
+          schema: verificationChallengeSchema,
+        }),
+      confirmVerification: (body) =>
+        http.request('/v1/notifications/contacts/verify/confirm', {
+          method: 'POST',
+          body,
+          schema: contactSchema,
+        }),
+      removeContact: (channel) =>
+        http.request(`/v1/notifications/contacts/${id(channel)}`, {
+          method: 'DELETE',
+          schema: voidSchema,
+        }),
+      policy: () => http.request('/v1/notifications/policy', { schema: notificationPolicySchema }),
+      updatePolicy: (body) =>
+        http.request('/v1/notifications/policy', {
+          method: 'PUT',
+          body,
+          schema: notificationPolicySchema,
+        }),
+      events: () =>
+        http.request('/v1/notifications/events', { schema: z.array(notificationEventSchema) }),
+      acknowledge: (eventId) =>
+        http.request(`/v1/notifications/events/${id(eventId)}/acknowledge`, {
+          method: 'POST',
+          schema: notificationEventSchema,
+        }),
+      sendTest: (urgency) =>
+        http.request('/v1/notifications/test', {
+          method: 'POST',
+          body: { urgency },
+          schema: notificationEventSchema,
+        }),
+    },
+    briefings: {
+      list: () => http.request('/v1/briefings', { schema: z.array(briefingScheduleSchema) }),
+      update: ({ kind, ...body }) =>
+        http.request(`/v1/briefings/${id(kind)}`, {
+          method: 'PUT',
+          body,
+          schema: briefingScheduleSchema,
+        }),
+      preview: (kind) =>
+        http.request(`/v1/briefings/${id(kind)}/preview`, { schema: briefingSchema }),
+      sendNow: (kind) =>
+        http.request(`/v1/briefings/${id(kind)}/send`, {
+          method: 'POST',
+          schema: notificationEventSchema,
         }),
     },
     audit: {

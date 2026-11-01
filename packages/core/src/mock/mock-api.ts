@@ -28,6 +28,7 @@ import {
   type AuditQuery,
   type ConnectedSource,
 } from '../domain/operations';
+import { CHANNEL_LABELS, type DeliveryChannel } from '../domain/notifications';
 import type { TenantConfig } from '../domain/tenant';
 import type { Suggestion, TwinStreamEvent } from '../domain/twin';
 import { redactPii } from '../security/pii';
@@ -36,7 +37,14 @@ import { createId } from '../security/ids';
 import { sanitizeText, toCsvCell } from '../security/sanitize';
 import type { KeyValueStore } from '../storage/kv';
 import { MockDb } from './db';
-import { buildRoutine, buildRuleWatch, ECONOMIC_EVENTS, seedNews } from './fixtures';
+import { createNotifyApi } from './notify-api';
+import {
+  buildRoutine,
+  buildRuleWatch,
+  ECONOMIC_EVENTS,
+  seedNews,
+  seedSourceHealth,
+} from './fixtures';
 import { planAutomation } from './planner';
 import type { ScenarioContext } from './scenarios';
 import { runTwin } from './twin-engine';
@@ -179,7 +187,7 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
   const { tenant, store } = options;
   const speed = options.speed ?? 1;
   const now = options.now ?? (() => new Date());
-  const db = new MockDb(store, now);
+  const db = new MockDb(store, now, tenant);
   const rand = seededRandom(7);
   const challenges = new Map<string, { userId: string; expiresAt: number; attempts: number }>();
 
@@ -291,6 +299,29 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
 
   function persist(session: Session) {
     db.save(session.user);
+  }
+
+  const notify = createNotifyApi({
+    db,
+    now,
+    latency,
+    requireSession,
+    data,
+    persist,
+    audit,
+  });
+
+  function assertChannelsAllowed(channels: DeliveryChannel[]) {
+    const blocked = channels.filter(
+      (c) => c !== 'in-app' && !db.policy().allowedChannels.includes(c),
+    );
+    if (blocked.length) {
+      const names = blocked.map((c) => CHANNEL_LABELS[c]).join(', ');
+      throw new ApiError('validation', `${names} is turned off by your firm.`, {
+        status: 422,
+        fieldErrors: { channels: `${names} is turned off by your firm` },
+      });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -455,6 +486,7 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
               condition: `${instrument} trades at ${level}`,
               instrument,
               level,
+              urgency: 'important',
               channels: ['in-app', 'push'],
               status: 'active',
               createdAt: now().toISOString(),
@@ -772,9 +804,11 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
       async create(input) {
         const parsed = parseInput(createAlertInputSchema, input);
         const session = requireSession('alerts.manage');
+        assertChannelsAllowed(parsed.channels);
         await latency();
         const base = {
           id: createId('al'),
+          urgency: parsed.urgency,
           channels: parsed.channels,
           status: 'active' as const,
           createdAt: now().toISOString(),
@@ -921,6 +955,11 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
           lastSyncAt: now().toISOString(),
           recordCount: Math.round(40 + rand() * 900),
           errorMessage: undefined,
+          health: {
+            successRate24h: 100,
+            hourly: ['ok'],
+            latencyMs: seedSourceHealth(source.id, 'connected', now().getTime())?.latencyMs,
+          },
         };
         Object.assign(source, updated);
         persist(session);
@@ -943,6 +982,7 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
           lastSyncAt: undefined,
           recordCount: undefined,
           errorMessage: undefined,
+          health: undefined,
         });
         persist(session);
         audit(session.user, 'source.revoked', 'success', `Revoked access to ${source.name}`, id);
@@ -960,10 +1000,39 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
           throw new ApiError('conflict', 'Connect this source first.', { status: 409 });
         source.lastSyncAt = now().toISOString();
         source.recordCount = (source.recordCount ?? 0) + Math.round(rand() * 20);
+        if (source.health) {
+          const hourly = [...source.health.hourly];
+          hourly[hourly.length - 1] = 'ok';
+          const good = hourly.filter((h) => h !== 'failed').length;
+          source.health = {
+            ...source.health,
+            hourly,
+            successRate24h: Math.round((good / hourly.length) * 100),
+            retry: undefined,
+          };
+        }
         persist(session);
         return source;
       },
+      async setAlertOnDisconnect(id, enabled) {
+        const session = requireSession('sources.manage');
+        await latency(80, 120);
+        const source = data(session).sources.find((s) => s.id === id) ?? notFound('source');
+        source.alertOnDisconnect = enabled;
+        persist(session);
+        audit(
+          session.user,
+          'notification.settings-changed',
+          'success',
+          `${enabled ? 'Turned on' : 'Turned off'} disconnect alerts for ${source.name}`,
+          source.id,
+        );
+        return source;
+      },
     },
+
+    notifications: notify.notifications,
+    briefings: notify.briefings,
 
     audit: {
       async list(query) {
@@ -1009,6 +1078,7 @@ const ACTION_GROUPS: Record<Exclude<AuditQuery['action'], 'all'>, string> = {
   automation: 'automation.',
   source: 'source.',
   alert: 'alert.',
+  notification: 'notification.',
   settings: 'settings.',
   data: 'data.',
 };

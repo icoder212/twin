@@ -1,16 +1,24 @@
-import { ShieldCheck } from 'lucide-react';
+import {
+  CircleCheck,
+  Plug,
+  RotateCw,
+  ShieldCheck,
+  TriangleAlert,
+  type LucideIcon,
+} from 'lucide-react';
 import { useState } from 'react';
-import type { ConnectedSource } from '@twindesk/core';
+import type { ConnectedSource, Tone } from '@twindesk/core';
 import { useAuth } from '@/features/auth/use-auth';
 import { Page, PageHeader } from '@/shared/components/PageHeader';
 import { QueryView } from '@/shared/components/QueryView';
-import { Badge } from '@/shared/ui/badge';
+import { cn } from '@/lib/cn';
+import { toneText } from '@/shared/ui/badge';
 import { Card } from '@/shared/ui/card';
 import { Skeleton } from '@/shared/ui/feedback';
 import { ConnectSourceDialog } from './ConnectSourceDialog';
 import { useSources } from './queries';
 import { SourceCard } from './SourceCard';
-import { CATEGORIES, isStale } from './source-meta';
+import { CATEGORIES, healthState } from './source-meta';
 
 const STEPS = [
   {
@@ -72,19 +80,53 @@ export function SourcesPage() {
           const connected = data.filter(
             (s) => s.status === 'connected' || s.status === 'syncing',
           ).length;
-          const attention = data.filter((s) => s.status === 'error' || isStale(s)).length;
+          const byState = (state: ReturnType<typeof healthState>) =>
+            data.filter((s) => healthState(s) === state);
+          const normal = byState('normal');
+          const delayed = byState('delayed');
+          const attention = byState('attention');
+          const names = (list: ConnectedSource[]) => list.map((s) => s.name).join(', ');
           return (
             <>
-              <div className="mt-8 flex flex-wrap items-center gap-2" aria-live="polite">
-                <Badge tone="success">{connected} connected</Badge>
-                {attention ? <Badge tone="warning">{attention} need attention</Badge> : null}
-                <Badge>{data.length - connected} available</Badge>
-                {!can('sources.manage') ? (
-                  <span className="text-xs text-fg-subtle">
-                    Your role can view connections. Changing them needs source management access.
-                  </span>
-                ) : null}
-              </div>
+              <ul
+                className="mt-8 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4"
+                aria-label="Source health"
+                aria-live="polite"
+              >
+                <HealthTile
+                  icon={Plug}
+                  tone="brand"
+                  label="Connected"
+                  value={connected}
+                  hint={`${data.length - connected} more available`}
+                />
+                <HealthTile
+                  icon={CircleCheck}
+                  tone="success"
+                  label="Fetching normally"
+                  value={normal.length}
+                  hint="On schedule in the last hour"
+                />
+                <HealthTile
+                  icon={RotateCw}
+                  tone="warning"
+                  label="Delayed or retrying"
+                  value={delayed.length}
+                  hint={delayed.length ? names(delayed) : 'Nothing delayed'}
+                />
+                <HealthTile
+                  icon={TriangleAlert}
+                  tone="danger"
+                  label="Needs attention"
+                  value={attention.length}
+                  hint={attention.length ? names(attention) : 'Nothing to reconnect'}
+                />
+              </ul>
+              {!can('sources.manage') ? (
+                <p className="mt-3 text-xs text-fg-subtle">
+                  Your role can view connections. Changing them needs source management access.
+                </p>
+              ) : null}
 
               {CATEGORIES.map((category) => {
                 const items = data.filter((s) => s.category === category.id);
@@ -124,5 +166,37 @@ export function SourcesPage() {
 
       <ConnectSourceDialog source={connecting} onClose={() => setConnecting(null)} />
     </Page>
+  );
+}
+
+function HealthTile({
+  icon: Icon,
+  tone,
+  label,
+  value,
+  hint,
+}: {
+  icon: LucideIcon;
+  tone: Tone;
+  label: string;
+  value: number;
+  hint: string;
+}) {
+  return (
+    <li>
+      <Card className="h-full p-3 sm:p-4">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-[12.5px] font-medium text-fg-muted">{label}</p>
+          <Icon
+            className={cn('size-4 shrink-0', value ? toneText[tone] : 'text-fg-subtle')}
+            aria-hidden
+          />
+        </div>
+        <p className="mt-2 text-[26px] leading-none font-semibold tracking-tight text-fg tabular">
+          {value}
+        </p>
+        <p className="mt-1.5 line-clamp-2 text-xs text-fg-subtle">{hint}</p>
+      </Card>
+    </li>
   );
 }

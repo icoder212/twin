@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { hexColorSchema, idSchema } from './common';
 import { ssoProviderSchema } from './auth';
+import { notificationPolicySchema } from './notifications';
 
 /**
  * Semantic colour tokens. Every client (web, mobile, embed) maps these onto its own styling
@@ -116,6 +117,13 @@ export const tenantConfigSchema = z.object({
     supportEmail: z.email(),
     privacyUrl: assetUrlSchema.optional(),
     termsUrl: assetUrlSchema.optional(),
+  }),
+  /** The firm's starting notification policy; administrators can change it in the app. */
+  notifications: notificationPolicySchema.pick({
+    allowedChannels: true,
+    requireMinimalContent: true,
+    allowSupervisorEscalation: true,
+    supervisorLabel: true,
   }),
   embed: z.object({
     /** Host origins allowed to frame the app and exchange postMessage events with it. */

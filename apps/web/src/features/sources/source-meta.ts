@@ -14,7 +14,17 @@ import {
   Scale,
   type LucideIcon,
 } from 'lucide-react';
-import type { ConnectedSource, SourceCategory, SourceProvider, Tone } from '@twindesk/core';
+import {
+  formatDateTime,
+  formatNumber,
+  formatTime,
+  type ConnectedSource,
+  type FormatLocale,
+  type SourceCategory,
+  type SourceCheck,
+  type SourceProvider,
+  type Tone,
+} from '@twindesk/core';
 
 export const CATEGORIES: ReadonlyArray<{ id: SourceCategory; title: string }> = [
   { id: 'platform', title: 'Trading platforms' },
@@ -88,4 +98,52 @@ export const STATUS_META: Record<ConnectedSource['status'], { label: string; ton
 export function isStale(source: ConnectedSource, now: number = Date.now()): boolean {
   if (source.status !== 'connected' || !source.lastSyncAt) return false;
   return now - new Date(source.lastSyncAt).getTime() > source.staleAfterHours * 3_600_000;
+}
+
+/** Hourly fetch results. Colour always comes with this label, in the legend and the summary. */
+export const CHECK_META: Record<SourceCheck, { label: string; tone: Tone; bar: string }> = {
+  ok: { label: 'Fetched', tone: 'success', bar: 'bg-success' },
+  slow: { label: 'Slow', tone: 'warning', bar: 'bg-warning' },
+  failed: { label: 'Failed', tone: 'danger', bar: 'bg-danger' },
+  idle: { label: 'Nothing scheduled', tone: 'neutral', bar: 'bg-fg-subtle/40' },
+};
+
+export type HealthState = 'normal' | 'delayed' | 'attention' | 'off';
+
+/** Where a source stands right now, for the summary tiles and the card. */
+export function healthState(source: ConnectedSource, now: number = Date.now()): HealthState {
+  if (source.status === 'error') return 'attention';
+  if (source.status === 'not-connected') return 'off';
+  const hourly = source.health?.hourly ?? [];
+  const last = hourly[hourly.length - 1];
+  if (source.health?.retry || last === 'slow' || last === 'failed' || isStale(source, now)) {
+    return 'delayed';
+  }
+  return 'normal';
+}
+
+/** One sentence that says what the 24-hour bar shows, for screen readers and the card. */
+export function healthSummary(hourly: SourceCheck[]): string {
+  if (hourly.length === 0) return 'No checks yet.';
+  if (hourly.every((h) => h === 'idle')) {
+    return 'Fetched when something changes, so there were no scheduled checks in the last 24 hours.';
+  }
+  const count = (kind: SourceCheck) => hourly.filter((h) => h === kind).length;
+  const scheduled = hourly.length - count('idle');
+  const succeeded = count('ok') + count('slow');
+  const parts = [`${succeeded} of ${scheduled} hourly checks succeeded`];
+  if (count('slow')) parts.push(`${count('slow')} slow`);
+  if (count('failed')) parts.push(`${count('failed')} failed`);
+  return `${parts.join(', ')}.`;
+}
+
+export function formatLatency(ms: number, loc: FormatLocale): string {
+  return ms < 1000 ? `${formatNumber(ms, loc)} ms` : `${formatNumber(ms / 1000, loc, 1)} s`;
+}
+
+/** "10:02" for data from the last day, otherwise the date and time. */
+export function formatAsOf(iso: string, loc: FormatLocale, now: number = Date.now()): string {
+  return now - new Date(iso).getTime() < 20 * 3_600_000
+    ? formatTime(iso, loc)
+    : formatDateTime(iso, loc);
 }

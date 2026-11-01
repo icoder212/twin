@@ -73,7 +73,9 @@ The mock engine (`packages/core/src/mock/twin-engine.ts`) emits exactly this seq
 
 1. Build the API to the contract. `packages/core/src/api/http-api.ts` lists every endpoint; for
    example `POST /v1/auth/login`, `POST /v1/twin/ask` (SSE), `GET /v1/approvals`,
-   `POST /v1/approvals/:id/decision`, `GET /v1/audit`.
+   `POST /v1/approvals/:id/decision`, `GET /v1/audit`, `PUT /v1/notifications/preferences`,
+   `POST /v1/notifications/contacts/verify`, `GET /v1/notifications/events`,
+   `PUT /v1/briefings/:kind`.
 2. Build with `VITE_API_MODE=http` and `VITE_API_BASE_URL=https://api…`. The demo backend and
    its credentials are then excluded from the bundle, and the CSP `connect-src` picks up the
    API origin.
@@ -96,6 +98,13 @@ alerts(...)    approvals(id, ..., status, decided_by, decided_at)
 answers(id 'DT-…', tenant_id, user_id, question, text, citations jsonb, checks jsonb,
         models jsonb, library_version, latency_ms, created_at)
 audit_events(id, tenant_id, actor, action, outcome, summary, ref, at)   -- append-only
+notification_preferences(user_id, routing jsonb, quiet_hours jsonb, digest jsonb,
+        escalation jsonb, privacy)
+contacts(id, user_id, channel, address_encrypted, verified_at, consent_at)
+notification_events(id 'NT-…', tenant_id, user_id, topic, urgency, title, body, created_at,
+        acknowledged_at, escalation jsonb)
+deliveries(event_id, channel, status, destination_masked, provider_ref, note, at)  -- append-only
+briefing_schedules(user_id, kind, enabled, time, days, channels, sections, last_sent_at)
 ```
 
 ### AI integration
@@ -107,6 +116,17 @@ the advice checks from `packages/core/src/compliance` as code after generation, 
 and then withholding. Models are configuration and are recorded on every answer (the mock records
 `claude-haiku-5-5` for routing and `claude-sonnet-5-5` for drafting). Numbers come from rule
 engines and detectors, never from the model.
+
+### Notifications
+
+`packages/core/src/notifications` holds the rules both sides share: `planDeliveries` decides,
+per channel, whether a notification is sent, held (quiet hours or the daily summary) or skipped
+(firm policy or no verified contact); `planEscalation` decides who hears about an unacknowledged
+critical alert; `renderMessage` produces the exact wording per channel, including the minimal
+form that keeps figures inside the app. The server runs the same functions when an alert fires,
+then hands each delivery to a provider (an email service, the WhatsApp Business Platform, a
+Teams bot, an SMS gateway, APNs and FCM) through a queue, with retries and delivery receipts
+written back to `deliveries`. A scheduled job sends briefings and escalations.
 
 ## Embedding in client platforms
 

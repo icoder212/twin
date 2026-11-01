@@ -32,6 +32,7 @@ const ctx = (question: string): ScenarioContext => ({
     condition: '',
     instrument,
     level,
+    urgency: 'important',
     channels: ['in-app'],
     status: 'active',
     createdAt: new Date().toISOString(),

@@ -117,3 +117,32 @@ export function hourIn(timezone: string, at: Date = new Date()): number {
   }).format(at);
   return Number(hour) % 24;
 }
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+/** Minutes since midnight and day of the week (0 is Sunday) on the wall clock in `timezone`. */
+export function localClock(
+  timezone: string,
+  at: Date = new Date(),
+): { minutes: number; weekday: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hourCycle: 'h23',
+    hour: '2-digit',
+    minute: '2-digit',
+    weekday: 'short',
+  }).formatToParts(at);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return {
+    minutes: Number(get('hour')) * 60 + Number(get('minute')),
+    weekday: WEEKDAY_INDEX[get('weekday')] ?? 0,
+  };
+}
