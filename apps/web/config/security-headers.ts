@@ -1,6 +1,6 @@
 /**
  * One definition of the browser security policy, used by the Vite build (CSP meta tag), the
- * dev and preview servers, and mirrored in deploy/nginx.conf for production.
+ * dev and preview servers, and mirrored in deploy/nginx and apps/web/vercel.json for production.
  */
 
 export interface CspOptions {

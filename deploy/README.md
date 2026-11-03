@@ -30,12 +30,22 @@ Runtime environment (read by nginx at start-up):
 | `TWINDESK_API_ORIGIN`      | empty    | Added to the CSP `connect-src`, e.g. `https://api.desktwin.example.com` |
 | `TWINDESK_FRAME_ANCESTORS` | `'self'` | Default CSP `frame-ancestors` for hosts not listed in the map           |
 
+## Vercel
+
+Set the project's Root Directory to `apps/web` and leave the build settings on their defaults:
+`apps/web/vercel.json` installs from the repository root (TypeScript and the shared packages
+live there), builds, serves `dist` with the SPA fallback and sends the same headers as nginx.
+Leave "Include files outside the root directory" switched on. Set the `VITE_` variables above
+in the project's environment variables; unset, the build runs the demo.
+
 ## Where the headers live
 
 - `apps/web/config/security-headers.ts` is the source of truth. Vite adds the CSP as a meta tag
   to every build and sends the same headers from `vite preview`.
 - `deploy/nginx/security-headers.inc.template` mirrors it for production, adding
-  `frame-ancestors` and HSTS, which cannot be set from a meta tag. Change both files together.
+  `frame-ancestors` and HSTS, which cannot be set from a meta tag. `apps/web/vercel.json` does
+  the same for Vercel (demo values: no API origin, frames from `'self'` only). Change all three
+  files together.
 - Both a header CSP and the meta CSP are enforced; a request must satisfy both, so keep their
   `connect-src` values in step (`VITE_API_BASE_URL` and `TWINDESK_API_ORIGIN`).
 
