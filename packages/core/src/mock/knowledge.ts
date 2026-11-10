@@ -9,6 +9,8 @@ export interface Passage {
   url?: string;
   /** Days since the passage was last rebuilt or fetched. */
   ageDays: number;
+  /** Exact fetch time, for live passages read from a connected source a moment ago. */
+  updatedAt?: string;
 }
 
 export const LIBRARY_SIZE = 806;
@@ -296,9 +298,14 @@ const PASSAGES: Passage[] = [
 
 const BY_ID = new Map(PASSAGES.map((p) => [p.id, p]));
 
-export function toCitations(ids: string[], now: number = Date.now()): Citation[] {
+/** `live` holds passages built for this question, such as today's events from a calendar. */
+export function toCitations(
+  ids: string[],
+  now: number = Date.now(),
+  live: readonly Passage[] = [],
+): Citation[] {
   return ids.map((id, i) => {
-    const p = BY_ID.get(id);
+    const p = BY_ID.get(id) ?? live.find((l) => l.id === id);
     if (!p) throw new Error(`Unknown passage ${id}`);
     return {
       index: i + 1,
@@ -308,7 +315,8 @@ export function toCitations(ids: string[], now: number = Date.now()): Citation[]
       excerpt: p.excerpt,
       url: p.url,
       owner: p.owner,
-      updatedAt: new Date(now - p.ageDays * 86_400_000 - (i + 1) * 3_600_000).toISOString(),
+      updatedAt:
+        p.updatedAt ?? new Date(now - p.ageDays * 86_400_000 - (i + 1) * 3_600_000).toISOString(),
       score: Math.max(0.55, 0.96 - i * 0.07),
     };
   });

@@ -102,6 +102,13 @@ These exist only in mock builds and are removed from builds with `VITE_API_MODE=
 - Demo accounts, the shared demo password and the fixed authenticator code.
 - The mock keeps its session and demo data in `sessionStorage`, which is cleared when the tab
   closes. Production uses an HttpOnly cookie and the server's database.
+- Google Calendar in the demo uses Google's browser-only grant, which Google lists as a legacy
+  option. The token is read-only (`calendar.readonly`), lasts at most an hour, is passed from the
+  sign-in window over a same-origin `BroadcastChannel` with a random `state`, is wiped from the
+  window's address bar and history at once, lives in memory only and is cleared on sign-out.
+  Only event times, titles, locations, join links and guest counts are requested; descriptions
+  and attendees' names and addresses are never fetched. Production uses the authorisation-code
+  flow on the server, with the refresh token in the vault, and the browser never calls Google.
 
 ## Before production
 

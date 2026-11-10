@@ -1,0 +1,25 @@
+// Cloudflare Worker for the Desk Twin server. Settings specific to one deployment (accounts,
+// phone numbers, keys) are secrets, never committed: see .dev.vars.example and README.md.
+{
+  "name": "desk-twin-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": true,
+  "triggers": { "crons": ["* * * * *"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "desk-twin",
+      "database_id": "a6a03907-d257-4ee4-be36-2cb61dfb0bd4",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "vars": {
+    "WHATSAPP_TEMPLATE": "meeting_reminder",
+    "WHATSAPP_TEMPLATE_LANGUAGE": "en_GB",
+    "GRAPH_API_VERSION": "v26.0",
+    "REMINDER_MINUTES": "10",
+    "TIMEZONE": "Europe/London",
+  },
+  "observability": { "enabled": true },
+}

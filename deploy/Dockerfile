@@ -15,6 +15,8 @@ COPY package.json package-lock.json .npmrc ./
 COPY packages/core/package.json packages/core/
 COPY packages/embed-sdk/package.json packages/embed-sdk/
 COPY apps/web/package.json apps/web/
+# Every workspace's manifest is needed for npm ci to match the lockfile, even when unused here.
+COPY apps/api/package.json apps/api/
 # Lifecycle scripts are disabled: no dependency gets to run code during install.
 RUN npm ci --ignore-scripts --no-audit --no-fund
 

@@ -3,3 +3,4 @@ coverage
 node_modules
 package-lock.json
 apps/web/public/hero-wave.svg
+.wrangler

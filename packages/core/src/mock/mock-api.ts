@@ -15,6 +15,7 @@ import {
   type Automation,
   type AutomationRun,
 } from '../domain/automation';
+import type { CalendarFeed, CalendarUpcoming } from '../domain/calendar';
 import type { DeskType } from '../domain/desk';
 import {
   approvalDecisionSchema,
@@ -27,10 +28,12 @@ import {
   type AuditEvent,
   type AuditQuery,
   type ConnectedSource,
+  type Notification,
 } from '../domain/operations';
 import { CHANNEL_LABELS, type DeliveryChannel } from '../domain/notifications';
 import type { TenantConfig } from '../domain/tenant';
 import type { Suggestion, TwinStreamEvent } from '../domain/twin';
+import { formatRelative, formatTime } from '../format/format';
 import { redactPii } from '../security/pii';
 import { can, type Permission } from '../security/rbac';
 import { createId } from '../security/ids';
@@ -46,7 +49,7 @@ import {
   seedSourceHealth,
 } from './fixtures';
 import { planAutomation } from './planner';
-import type { ScenarioContext } from './scenarios';
+import { matchQuestion, type ScenarioContext } from './scenarios';
 import { runTwin } from './twin-engine';
 import { DEMO_MFA_CODE, DEMO_PASSWORD, DEMO_USERS } from './users';
 import { parseInput, seededRandom, sleep, notFound } from './util';
@@ -58,6 +61,8 @@ export interface MockApiOptions {
   /** 1 gives realistic latency for demos; 0 makes every call instant (tests). */
   speed?: number;
   now?: () => Date;
+  /** A live calendar for the Google source. The browser holds the access; the mock only reads. */
+  calendar?: CalendarFeed;
 }
 
 const SESSION_KEY = 'twindesk.mock.session';
@@ -65,6 +70,8 @@ const LOCKOUT_PREFIX = 'twindesk.mock.lockout.';
 const LOCKOUT_SECONDS = 60;
 const MFA_TTL_MS = 5 * 60_000;
 const MAX_MFA_ATTEMPTS = 5;
+const GOOGLE_SOURCE_ID = 'src_google';
+const REMINDER_MINUTES = 10;
 
 interface StoredSession {
   session: Session;
@@ -179,6 +186,24 @@ const SUGGESTIONS: Record<DeskType | 'common', Suggestion[]> = {
   ],
 };
 
+const CALENDAR_SUGGESTION: Suggestion = {
+  id: 'sg_calendar',
+  label: 'Ask about your day',
+  prompt: 'What’s on my calendar today?',
+  kind: 'ask',
+  hint: '“What’s on my calendar today?”, from your Google Calendar',
+};
+
+/** Short stable hash (FNV-1a), so a reminder id stays the same across polls. */
+function shortHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
 /**
  * In-memory implementation of the full API contract, with the behaviours the real backend must
  * have: input validation, permission checks, per-user data, lockout, MFA, audit and redaction.
@@ -192,6 +217,9 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
   const challenges = new Map<string, { userId: string; expiresAt: number; attempts: number }>();
 
   const latency = (min = 150, spread = 350) => sleep((min + rand() * spread) * speed);
+  const calendarFeed = options.calendar;
+  /** The last week-long read, for the Google source's event count and sync time. */
+  let lastCalendar: CalendarUpcoming | undefined;
 
   // -------------------------------------------------------------------------
   // Session helpers
@@ -322,6 +350,79 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
         fieldErrors: { channels: `${names} is turned off by your firm` },
       });
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Live calendar (demo): the browser holds Google access, so the Google source mirrors it
+  // -------------------------------------------------------------------------
+
+  function withLiveCalendar(source: ConnectedSource): ConnectedSource {
+    if (!calendarFeed || source.id !== GOOGLE_SOURCE_ID) return source;
+    const connection = calendarFeed.connection();
+    return {
+      ...source,
+      name: 'Google Calendar',
+      description:
+        'Your calendar, read-only. In the demo, access stays in this browser tab for up to an hour.',
+      access: 'read-only',
+      scopes: ['Calendar events (read-only)'],
+      status:
+        connection === 'connected'
+          ? 'connected'
+          : connection === 'expired'
+            ? 'error'
+            : 'not-connected',
+      errorMessage:
+        connection === 'expired'
+          ? 'Access to Google Calendar has ended. Connect again to keep your events up to date.'
+          : undefined,
+      lastSyncAt: connection === 'not-connected' ? undefined : lastCalendar?.fetchedAt,
+      recordCount: connection === 'connected' ? lastCalendar?.events.length : undefined,
+      staleAfterHours: 1,
+      health: connection === 'connected' ? { successRate24h: 100, hourly: ['ok'] } : undefined,
+    };
+  }
+
+  async function readWeek(fresh = false): Promise<CalendarUpcoming> {
+    if (!calendarFeed) return { connection: 'not-connected', events: [] };
+    const week = await calendarFeed.upcoming(7, { fresh });
+    if (week.connection === 'connected') lastCalendar = week;
+    return week;
+  }
+
+  /** Adds one in-app reminder for each meeting starting in the next 10 minutes. */
+  async function addMeetingReminders(session: Session, list: Notification[]): Promise<boolean> {
+    if (!calendarFeed || calendarFeed.connection() !== 'connected') return false;
+    let today: CalendarUpcoming;
+    try {
+      today = await calendarFeed.upcoming(1);
+    } catch {
+      return false;
+    }
+    const loc = { ...tenant.locale, timezone: session.user.timezone || tenant.locale.timezone };
+    const t = now().getTime();
+    let added = false;
+    for (const e of today.events) {
+      const startsIn = Date.parse(e.start) - t;
+      if (e.allDay || startsIn <= 0 || startsIn > REMINDER_MINUTES * 60_000) continue;
+      const id = `nt_cal_${shortHash(`${e.id}|${e.start}`)}`;
+      if (list.some((n) => n.id === id)) continue;
+      const where = e.location ? `, ${e.location}` : e.joinUrl ? ', video call' : '';
+      list.unshift({
+        id,
+        title: `${formatTime(e.start, loc)}: ${e.title}`.slice(0, 120),
+        body: `Starts ${formatRelative(e.start, loc, t)}${where}. From your Google Calendar.`.slice(
+          0,
+          400,
+        ),
+        severity: 'info',
+        at: now().toISOString(),
+        read: false,
+        href: '/',
+      });
+      added = true;
+    }
+    return added;
   }
 
   // -------------------------------------------------------------------------
@@ -472,6 +573,11 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
         const question = sanitizeText(request.question, { maxLength: 2000 });
         if (!question) throw new ApiError('validation', 'Type a question first.', { status: 422 });
         const userData = data(session);
+        // Read the calendar only for questions about it, so other answers never wait on Google.
+        const calendar: CalendarUpcoming =
+          matchQuestion(question)?.id === 'my-calendar'
+            ? await readWeek()
+            : { connection: calendarFeed?.connection() ?? 'not-connected', events: [] };
         const ctx: ScenarioContext = {
           user: session.user,
           tenant,
@@ -527,6 +633,7 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
           pendingApprovals: () => userData.approvals.filter((a) => a.status === 'pending'),
           openActionItems: () => userData.actionItems.filter((i) => !i.done),
           events: () => ECONOMIC_EVENTS,
+          calendar: () => calendar,
         };
 
         for await (const event of runTwin(ctx, { speed }, signal)) {
@@ -557,7 +664,11 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
       async suggestions(deskType) {
         requireSession('twin.ask');
         await latency(80, 80);
-        return [...SUGGESTIONS[deskType], ...SUGGESTIONS.common];
+        return [
+          ...SUGGESTIONS[deskType],
+          ...(calendarFeed ? [CALENDAR_SUGGESTION] : []),
+          ...SUGGESTIONS.common,
+        ];
       },
 
       async feedback(answerId, rating) {
@@ -876,7 +987,10 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
       async notifications() {
         const session = requireSession();
         await latency(60, 80);
-        return data(session).notifications;
+        const list = data(session).notifications;
+        if (await addMeetingReminders(session, list)) persist(session);
+        // A new array, so a client cache notices an added reminder like a server response.
+        return [...list];
       },
       async markRead(ids) {
         const session = requireSession();
@@ -931,11 +1045,27 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
       async list() {
         const session = requireSession();
         await latency();
-        return data(session).sources;
+        return data(session).sources.map(withLiveCalendar);
       },
       async connect(input) {
         const parsed = parseInput(connectSourceInputSchema, input);
         const session = requireSession('sources.manage');
+        if (calendarFeed && parsed.sourceId === GOOGLE_SOURCE_ID) {
+          if (calendarFeed.connection() !== 'connected') {
+            throw new ApiError('conflict', 'Finish signing in with Google first.', { status: 409 });
+          }
+          const source =
+            data(session).sources.find((s) => s.id === GOOGLE_SOURCE_ID) ?? notFound('source');
+          await readWeek(true);
+          audit(
+            session.user,
+            'source.connected',
+            'success',
+            'Connected Google Calendar, read-only',
+            source.id,
+          );
+          return withLiveCalendar(source);
+        }
         await latency(1100, 500);
         const source =
           data(session).sources.find((s) => s.id === parsed.sourceId) ?? notFound('source');
@@ -976,6 +1106,12 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
         const session = requireSession('sources.manage');
         await latency();
         const source = data(session).sources.find((s) => s.id === id) ?? notFound('source');
+        if (calendarFeed && id === GOOGLE_SOURCE_ID) {
+          calendarFeed.disconnect();
+          lastCalendar = undefined;
+          audit(session.user, 'source.revoked', 'success', 'Revoked access to Google Calendar', id);
+          return withLiveCalendar(source);
+        }
         Object.assign(source, {
           status: 'not-connected',
           scopes: [],
@@ -992,6 +1128,13 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
         const session = requireSession('sources.manage');
         await latency(900, 600);
         const source = data(session).sources.find((s) => s.id === id) ?? notFound('source');
+        if (calendarFeed && id === GOOGLE_SOURCE_ID) {
+          if (calendarFeed.connection() !== 'connected') {
+            throw new ApiError('conflict', 'Connect Google Calendar again first.', { status: 409 });
+          }
+          await readWeek(true);
+          return withLiveCalendar(source);
+        }
         if (source.status === 'error')
           throw new ApiError('conflict', 'Reconnect this source before fetching again.', {
             status: 409,
@@ -1027,7 +1170,16 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
           `${enabled ? 'Turned on' : 'Turned off'} disconnect alerts for ${source.name}`,
           source.id,
         );
-        return source;
+        return withLiveCalendar(source);
+      },
+    },
+
+    calendar: {
+      async upcoming(days = 7) {
+        requireSession();
+        if (!calendarFeed) return { connection: 'not-connected', events: [] };
+        const span = Math.min(31, Math.max(1, Math.trunc(days)));
+        return span === 7 ? readWeek() : calendarFeed.upcoming(span);
       },
     },
 

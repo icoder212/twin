@@ -13,6 +13,7 @@ export default tseslint.config(
       '**/coverage',
       '**/node_modules',
       'apps/web/public',
+      '**/.wrangler',
       'playwright-report',
       'test-results',
     ],
@@ -70,6 +71,9 @@ export default tseslint.config(
     ],
     rules: { 'react-refresh/only-export-components': 'off' },
   },
-  { files: ['apps/web/src/lib/logger.ts'], rules: { 'no-console': 'off' } },
+  {
+    files: ['apps/web/src/lib/logger.ts', 'apps/api/src/log.ts'],
+    rules: { 'no-console': 'off' },
+  },
   { files: ['**/*.test.{ts,tsx}'], rules: { 'no-script-url': 'off' } },
 );

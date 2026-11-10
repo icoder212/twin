@@ -23,6 +23,10 @@ function cspMetaTag(connectSrc: string[]): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   const connectSrc = env.VITE_API_BASE_URL ? [new URL(env.VITE_API_BASE_URL).origin] : [];
+  // Demo builds with a Google client read the calendar from the browser; production never does.
+  if (env.VITE_GOOGLE_CLIENT_ID && env.VITE_API_MODE !== 'http') {
+    connectSrc.push('https://www.googleapis.com');
+  }
   // Frames are only allowed from the app itself (white-label preview) and configured hosts.
   const frameAncestors = [
     "'self'",

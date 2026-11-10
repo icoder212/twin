@@ -1,4 +1,5 @@
 import type { LoginInput, LoginResult, MfaInput, Session, SsoProvider } from '../domain/auth';
+import type { CalendarUpcoming } from '../domain/calendar';
 import type { Page } from '../domain/common';
 import type { DeskType } from '../domain/desk';
 import type {
@@ -109,6 +110,12 @@ export interface SourcesApi {
   setAlertOnDisconnect(id: string, enabled: boolean): Promise<ConnectedSource>;
 }
 
+/** The user's own calendar, read-only, from whichever calendar source is connected. */
+export interface CalendarApi {
+  /** Events from now to `days` ahead (1 to 31). Empty when nothing is connected. */
+  upcoming(days?: number): Promise<CalendarUpcoming>;
+}
+
 /**
  * Where notifications go. Preferences, contacts and the delivery log belong to the signed-in
  * user; the policy belongs to the firm and only administrators change it.
@@ -151,6 +158,7 @@ export interface TwinDeskApi {
   alerts: AlertsApi;
   approvals: ApprovalsApi;
   sources: SourcesApi;
+  calendar: CalendarApi;
   notifications: NotificationsApi;
   briefings: BriefingsApi;
   audit: AuditApi;

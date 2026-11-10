@@ -60,7 +60,7 @@ export async function* runTwin(
   await wait(280);
   yield { type: 'routed', specialist: result.specialist, reason: result.routeReason };
 
-  const citations = toCitations(result.passages, ctx.now.getTime());
+  const citations = toCitations(result.passages, ctx.now.getTime(), result.livePassages);
   await wait(420);
   yield { type: 'retrieved', citations, matched: citations.length, size: LIBRARY_SIZE };
 

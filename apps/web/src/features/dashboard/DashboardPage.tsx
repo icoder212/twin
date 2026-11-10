@@ -1,8 +1,10 @@
 import { ArrowRight, Clock, Gauge, Inbox, Sparkles, TrendingDown } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { DESK_LABELS, formatLongDate, formatPct, hourIn } from '@twindesk/core';
+import { env } from '@/app/env';
 import { usePendingApprovalCount } from '@/features/approvals/queries';
 import { useAuth } from '@/features/auth/use-auth';
+import { CalendarCard } from '@/features/calendar/CalendarCard';
 import { useTenant } from '@/features/tenant/tenant-context';
 import { Page, PageHeader } from '@/shared/components/PageHeader';
 import { QueryView } from '@/shared/components/QueryView';
@@ -20,6 +22,9 @@ import {
 } from './DeskCards';
 import { useOverview } from './queries';
 import { usageTone } from './usage-tone';
+
+/** A real calendar: read on the server in production, or from Google in a demo with a client. */
+const showCalendar = env.apiMode === 'http' || Boolean(env.googleClientId);
 
 function greeting(hour: number) {
   if (hour < 12) return 'Good morning';
@@ -133,6 +138,7 @@ export function DashboardPage() {
                   <RoutineCard routine={data.routine} deskLabel={desk.long} />
                 </div>
                 <div className="flex flex-col gap-6 lg:col-span-5">
+                  {showCalendar ? <CalendarCard /> : null}
                   <EventsCard events={data.events} nowMinutes={minutesNow(locale.timezone)} />
                   <NewsCard news={data.news} locale={locale} />
                 </div>

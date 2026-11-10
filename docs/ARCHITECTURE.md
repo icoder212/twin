@@ -75,7 +75,9 @@ The mock engine (`packages/core/src/mock/twin-engine.ts`) emits exactly this seq
    example `POST /v1/auth/login`, `POST /v1/twin/ask` (SSE), `GET /v1/approvals`,
    `POST /v1/approvals/:id/decision`, `GET /v1/audit`, `PUT /v1/notifications/preferences`,
    `POST /v1/notifications/contacts/verify`, `GET /v1/notifications/events`,
-   `PUT /v1/briefings/:kind`.
+   `PUT /v1/briefings/:kind`, `GET /v1/calendar/upcoming?days=7`. The server reads calendars
+   with the OAuth refresh token from the vault, through the same `CalendarFeed` port and Google
+   mapping (`packages/core/src/calendar`) that the demo uses in the browser.
 2. Build with `VITE_API_MODE=http` and `VITE_API_BASE_URL=https://api…`. The demo backend and
    its credentials are then excluded from the bundle, and the CSP `connect-src` picks up the
    API origin.

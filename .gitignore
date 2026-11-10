@@ -9,6 +9,11 @@ coverage/
 .env
 .env.*
 !.env.example
+.dev.vars*
+!.dev.vars.example
+
+# Cloudflare Wrangler local state and bundles
+.wrangler/
 
 # Editor
 .vscode/*

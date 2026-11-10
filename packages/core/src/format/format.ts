@@ -86,6 +86,20 @@ export function formatLongDate(iso: string | Date, loc: FormatLocale): string {
   ).format(new Date(iso));
 }
 
+/** "Tue 10 Nov": for lists that span a few days. */
+export function formatShortDate(iso: string | Date, loc: FormatLocale): string {
+  return memo(
+    `sd:${loc.language}:${loc.timezone}`,
+    () =>
+      new Intl.DateTimeFormat(loc.language, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        timeZone: loc.timezone,
+      }),
+  ).format(new Date(iso));
+}
+
 const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ['day', 86_400_000],
   ['hour', 3_600_000],
@@ -145,4 +159,36 @@ export function localClock(
     minutes: Number(get('hour')) * 60 + Number(get('minute')),
     weekday: WEEKDAY_INDEX[get('weekday')] ?? 0,
   };
+}
+
+/**
+ * The calendar date ("2026-11-09") on the wall clock in `timezone`, `offsetDays` days on. Steps
+ * an hour at a time, so days of 23 or 25 hours around a clock change are counted correctly.
+ */
+export function dayKeyIn(timezone: string, at: string | Date = new Date(), offsetDays = 0): string {
+  const fmt = memo(
+    `dk:${timezone}`,
+    () =>
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }),
+  ) as Intl.DateTimeFormat;
+  const keyAt = (t: number) => {
+    const parts = fmt.formatToParts(t);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+    return `${get('year')}-${get('month')}-${get('day')}`;
+  };
+  let t = new Date(at).getTime();
+  let key = keyAt(t);
+  for (let d = 0; d < offsetDays; d += 1) {
+    const from = key;
+    while (key === from) {
+      t += 3_600_000;
+      key = keyAt(t);
+    }
+  }
+  return key;
 }

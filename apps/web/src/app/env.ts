@@ -19,6 +19,12 @@ const envSchema = z
       .string()
       .regex(/^[a-z0-9-]+$/)
       .default('alchmai'),
+    /** OAuth client for the demo's browser-held Google Calendar access. Public by design. */
+    VITE_GOOGLE_CLIENT_ID: z
+      .string()
+      .regex(/^[\w-]+\.apps\.googleusercontent\.com$/)
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
   })
   .superRefine((env, ctx) => {
     if (env.VITE_API_MODE === 'http' && !env.VITE_API_BASE_URL) {
@@ -37,5 +43,7 @@ export const env = {
   /** Demo affordances: sample credentials, white-label switcher, reset demo data. */
   demoMode: parsed.VITE_API_MODE === 'mock' || parsed.VITE_DEMO_MODE,
   defaultTenant: parsed.VITE_DEFAULT_TENANT,
+  /** Set only in demo builds: production reads calendars on the server, never in the browser. */
+  googleClientId: parsed.VITE_API_MODE === 'mock' ? parsed.VITE_GOOGLE_CLIENT_ID : undefined,
   isDev: import.meta.env.DEV,
 } as const;

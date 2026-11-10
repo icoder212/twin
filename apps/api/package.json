@@ -1,0 +1,16 @@
+{
+  "name": "@twindesk/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desk Twin server on Cloudflare Workers. First slice: WhatsApp reminders before the owner's meetings.",
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes wrangler@4.152.0 dev",
+    "deploy": "npx --yes wrangler@4.152.0 deploy",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@twindesk/core": "0.1.0",
+    "zod": "4.6.7"
+  }
+}

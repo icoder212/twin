@@ -38,6 +38,29 @@ live there), builds, serves `dist` with the SPA fallback and sends the same head
 Leave "Include files outside the root directory" switched on. Set the `VITE_` variables above
 in the project's environment variables; unset, the build runs the demo.
 
+## Google Calendar in the demo
+
+A demo build with `VITE_GOOGLE_CLIENT_ID` set lets the signed-in user connect their real Google
+Calendar from the browser, read-only, for up to an hour at a time. Nothing is stored. Production
+builds ignore the variable; there the API reads calendars on the server.
+
+1. In [Google Cloud console](https://console.cloud.google.com), create a project and enable the
+   **Google Calendar API**. No billing account is needed.
+2. Under **Google Auth Platform → Branding / Audience**, set the app name and support email.
+   Choose **Internal** if only accounts in your own Google Workspace will connect (no Google
+   review, no test-user list), or **External** and add each person's address as a test user.
+3. Under **Data access**, add the scope `.../auth/calendar.readonly` only.
+4. Under **Clients**, create a **Web application** client:
+   - Authorised JavaScript origins: `https://<your-domain>` and `http://localhost:5173`
+   - Authorised redirect URIs: `https://<your-domain>/oauth/google.html` and
+     `http://localhost:5173/oauth/google.html` (exact match, no trailing slash)
+5. Copy the **Client ID** (it ends in `.apps.googleusercontent.com`; it is public, not a secret)
+   into `VITE_GOOGLE_CLIENT_ID`: in Vercel under Settings → Environment Variables, then redeploy;
+   locally in `apps/web/.env.local`. The client secret is not used.
+
+If Google shows "access blocked by your administrator", allow the app in the Workspace Admin
+console under Security → API controls.
+
 ## Where the headers live
 
 - `apps/web/config/security-headers.ts` is the source of truth. Vite adds the CSP as a meta tag
@@ -48,6 +71,9 @@ in the project's environment variables; unset, the build runs the demo.
   files together.
 - Both a header CSP and the meta CSP are enforced; a request must satisfy both, so keep their
   `connect-src` values in step (`VITE_API_BASE_URL` and `TWINDESK_API_ORIGIN`).
+- `apps/web/vercel.json` also allows `https://www.googleapis.com` in `connect-src` for the demo's
+  Google Calendar. The meta CSP adds it only when `VITE_GOOGLE_CLIENT_ID` is set, and nginx
+  (production) never does.
 
 ## Letting a client embed the twin
 

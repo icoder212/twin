@@ -1,10 +1,19 @@
 import type { User } from '../domain/auth';
+import type { CalendarEvent, CalendarUpcoming } from '../domain/calendar';
 import type { Specialist } from '../domain/desk';
 import type { Alert, Approval } from '../domain/operations';
 import type { ActionItem, EconomicEvent } from '../domain/overview';
 import type { TenantConfig } from '../domain/tenant';
 import type { AnswerBlock, AnswerStatus, DraftAttempt } from '../domain/twin';
-import { formatLongDate, formatTime } from '../format/format';
+import {
+  dayKeyIn,
+  formatLongDate,
+  formatRelative,
+  formatShortDate,
+  formatTime,
+  type FormatLocale,
+} from '../format/format';
+import type { Passage } from './knowledge';
 
 export interface ScenarioContext {
   user: User;
@@ -19,6 +28,8 @@ export interface ScenarioContext {
   pendingApprovals(): Approval[];
   openActionItems(): ActionItem[];
   events(): EconomicEvent[];
+  /** The user's own calendar from now to 7 days ahead, read once per question. */
+  calendar(): CalendarUpcoming;
 }
 
 export interface ScenarioResult {
@@ -29,6 +40,8 @@ export interface ScenarioResult {
   blocks?: AnswerBlock[];
   /** Passage ids, in citation order: the first is [1]. */
   passages: string[];
+  /** Passages built for this question from a connected source, cited like library ones. */
+  livePassages?: Passage[];
   requiresCitations: boolean;
   /** Earlier drafts that failed the checks, summarised. Never their text. */
   blockedDrafts?: DraftAttempt[];
@@ -261,6 +274,15 @@ export const QUESTION_SCENARIOS: QuestionScenario[] = [
     }),
   },
   {
+    id: 'my-calendar',
+    keywords: [
+      ['my calendar', 'my diary', 'my schedule', 'my agenda', 'my day', 'meeting', 'appointment'],
+      ['today', 'tomorrow', 'week', 'next', 'when', 'what'],
+    ],
+    minGroups: 1,
+    build: (ctx) => calendarAnswer(ctx),
+  },
+  {
     id: 'studio',
     keywords: [['alchmai', 'studio', 'what do you build', 'services', 'who are you']],
     minGroups: 1,
@@ -277,6 +299,184 @@ export const QUESTION_SCENARIOS: QuestionScenario[] = [
     }),
   },
 ];
+
+// ---------------------------------------------------------------------------
+// The user's own calendar
+// ---------------------------------------------------------------------------
+
+type CalendarRange = 'today' | 'tomorrow' | 'week' | 'next';
+
+function calendarRange(question: string): CalendarRange {
+  const q = question.toLowerCase();
+  if (/\bnext\s+(?:meeting|call|event|appointment)\b/.test(q)) return 'next';
+  if (q.includes('tomorrow')) return 'tomorrow';
+  if (/\b(?:week|7 days|seven days|coming days)\b/.test(q)) return 'week';
+  return 'today';
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function eventTime(e: CalendarEvent, l: FormatLocale): string {
+  return e.allDay ? 'All day' : `${formatTime(e.start, l)} to ${formatTime(e.end, l)}`;
+}
+
+function eventPlace(e: CalendarEvent): string {
+  return e.location ?? (e.joinUrl ? 'Video call' : '-');
+}
+
+/**
+ * Answers about the user's own day. Event titles appear only in the table, never in the
+ * answer text, so a meeting called "Buy the dip review" cannot trip the advice checks.
+ */
+function calendarAnswer(ctx: ScenarioContext): ScenarioResult {
+  const cal = ctx.calendar();
+  if (cal.connection !== 'connected') {
+    return {
+      status: 'not-covered',
+      specialist: 'platforms',
+      routeReason: 'Asks about your own calendar, which is not connected.',
+      passages: [],
+      requiresCitations: false,
+      text:
+        cal.connection === 'expired'
+          ? 'I can’t see your calendar at the moment because access to Google Calendar has ended. Connect it again in Sources, then ask me again.'
+          : 'Your calendar isn’t connected, so I can’t see your meetings. Connect Google Calendar in Sources, then ask me again. Access is read-only.',
+    };
+  }
+
+  const l = loc(ctx);
+  const now = ctx.now.getTime();
+  const range = calendarRange(ctx.question);
+  const today = dayKeyIn(l.timezone, ctx.now);
+  const tomorrow = dayKeyIn(l.timezone, ctx.now, 1);
+  const onDay = (key: string) => cal.events.filter((e) => dayKeyIn(l.timezone, e.start) === key);
+  const timed = (events: CalendarEvent[]) => events.filter((e) => !e.allDay);
+  const span = (events: CalendarEvent[]) => {
+    const t = timed(events);
+    const first = t[0];
+    const last = t.reduce<CalendarEvent | undefined>(
+      (latest, e) => (!latest || e.end > latest.end ? e : latest),
+      undefined,
+    );
+    return first && last
+      ? ` Times run from ${formatTime(first.start, l)} to ${formatTime(last.end, l)}.`
+      : '';
+  };
+
+  let picked: CalendarEvent[];
+  let title: string;
+  let text: string;
+  switch (range) {
+    case 'next': {
+      const next = timed(cal.events).find((e) => Date.parse(e.start) > now);
+      picked = next ? [next] : [];
+      title = 'Next event';
+      if (!next) {
+        text = 'Nothing else is on your calendar for the next 7 days [1].';
+        break;
+      }
+      const key = dayKeyIn(l.timezone, next.start);
+      const day =
+        key === today
+          ? 'today'
+          : key === tomorrow
+            ? 'tomorrow'
+            : `on ${formatLongDate(next.start, l)}`;
+      const guests = next.guests
+        ? ` ${plural(next.guests, 'other person', 'other people')} ${next.guests === 1 ? 'is' : 'are'} invited.`
+        : '';
+      text = `Your next event starts ${formatRelative(next.start, l, now)}, at ${formatTime(next.start, l)} ${day} [1].${guests} The details are below.`;
+      break;
+    }
+    case 'tomorrow': {
+      picked = onDay(tomorrow);
+      title = 'Tomorrow';
+      text = picked.length
+        ? `You have ${plural(picked.length, 'event')} tomorrow, ${formatLongDate(picked[0]!.start, l)} [1].${span(picked)} They are listed below.`
+        : 'Nothing is on your calendar tomorrow [1].';
+      break;
+    }
+    case 'week': {
+      picked = cal.events;
+      title = 'Next 7 days';
+      if (!picked.length) {
+        text = 'Nothing is on your calendar for the next 7 days [1].';
+        break;
+      }
+      const byDay = new Map<string, CalendarEvent[]>();
+      for (const e of picked) {
+        const key = dayKeyIn(l.timezone, e.start);
+        byDay.set(key, [...(byDay.get(key) ?? []), e]);
+      }
+      const busiest = [...byDay.values()].reduce((a, b) => (b.length > a.length ? b : a));
+      text = `You have ${plural(picked.length, 'event')} in the next 7 days [1]. The busiest day is ${formatLongDate(busiest[0]!.start, l)}, with ${busiest.length}. They are listed below.`;
+      break;
+    }
+    case 'today': {
+      picked = onDay(today);
+      title = 'Rest of today';
+      if (picked.length) {
+        text = `You have ${plural(picked.length, 'event')} for the rest of today, ${formatLongDate(ctx.now, l)} [1].${span(picked)} They are listed below.`;
+        break;
+      }
+      const next = cal.events[0];
+      text = next
+        ? `Nothing else is on your calendar today [1]. The next event is on ${formatLongDate(next.start, l)}${next.allDay ? '' : ` at ${formatTime(next.start, l)}`}.`
+        : 'Nothing else is on your calendar today, or for the next 7 days [1].';
+      break;
+    }
+  }
+
+  const week = range === 'week';
+  const rows = picked
+    .slice(0, 15)
+    .map((e) =>
+      week
+        ? [formatShortDate(e.start, l), eventTime(e, l), e.title, eventPlace(e)]
+        : [eventTime(e, l), e.title, eventPlace(e)],
+    );
+  const owner = (
+    cal.calendarName ? `Google Calendar (${cal.calendarName})` : 'Google Calendar'
+  ).slice(0, 120);
+  const passage: Passage = {
+    id: 'live-calendar',
+    kind: 'calendar',
+    title: `Your calendar: ${title.toLowerCase()}`,
+    excerpt: (picked.length
+      ? picked
+          .slice(0, 12)
+          .map(
+            (e) => `${week ? `${formatShortDate(e.start, l)} ` : ''}${eventTime(e, l)}: ${e.title}`,
+          )
+          .join('; ')
+      : 'No events in this period.'
+    ).slice(0, 1200),
+    owner,
+    ageDays: 0,
+    updatedAt: cal.fetchedAt,
+  };
+
+  return {
+    status: 'answered',
+    specialist: 'platforms',
+    routeReason: 'Asks about your own day, so the twin reads your connected Google Calendar.',
+    passages: [passage.id],
+    livePassages: [passage],
+    requiresCitations: true,
+    text,
+    blocks: rows.length
+      ? [
+          {
+            type: 'table',
+            title,
+            columns: week ? ['Day', 'Time', 'Event', 'Where'] : ['Time', 'Event', 'Where'],
+            monoColumns: week ? [1] : [0],
+            rows,
+          },
+        ]
+      : [],
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Refusals

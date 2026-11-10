@@ -1,0 +1,22 @@
+# Copy to .dev.vars (git ignores it) and fill in. Upload to Cloudflare with:
+#   npx wrangler@4.152.0 secret bulk .dev.vars
+# Never commit the filled-in file or paste these values into chat.
+
+# The only Google account this server will connect (the owner's).
+OWNER_GOOGLE_ACCOUNT=
+# Google Auth Platform > Clients > Desk Twin web.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# 32 random bytes, base64. Generate with: openssl rand -base64 32
+TOKEN_KEY=
+
+# Meta for Developers > your app > WhatsApp > API Setup.
+WHATSAPP_PHONE_NUMBER_ID=
+# A permanent system-user token with whatsapp_business_messaging.
+WHATSAPP_TOKEN=
+# App settings > Basic > App secret (checks that webhooks really come from Meta).
+WHATSAPP_APP_SECRET=
+# Any long random string; enter the same value in the Meta webhook settings.
+WHATSAPP_VERIFY_TOKEN=
+# Your WhatsApp number in international format, digits only, e.g. 447700900123.
+WHATSAPP_TO=

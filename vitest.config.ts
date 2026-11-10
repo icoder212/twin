@@ -14,6 +14,14 @@ export default defineConfig({
         },
       },
       {
+        test: {
+          name: 'api',
+          root: './apps/api',
+          environment: 'node',
+          include: ['src/**/*.test.ts'],
+        },
+      },
+      {
         plugins: [react()],
         resolve: {
           alias: { '@': fileURLToPath(new URL('./apps/web/src', import.meta.url)) },
@@ -30,7 +38,7 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'v8',
-      include: ['packages/*/src/**', 'apps/web/src/**'],
+      include: ['packages/*/src/**', 'apps/web/src/**', 'apps/api/src/**'],
       exclude: ['**/*.test.*', '**/mock/fixtures.ts'],
     },
   },

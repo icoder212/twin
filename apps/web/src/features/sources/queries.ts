@@ -33,6 +33,7 @@ export function useRevokeSource() {
     onSuccess: (source) => {
       toast.success(`Access to ${source.name} revoked`);
       void queryClient.invalidateQueries({ queryKey: qk.sources });
+      void queryClient.invalidateQueries({ queryKey: qk.calendarRoot });
     },
     onError: toastError('Could not revoke access'),
   });
@@ -46,6 +47,7 @@ export function useSyncSource() {
     onSuccess: (source) => {
       toast.success(`${source.name} is up to date`);
       void queryClient.invalidateQueries({ queryKey: qk.sources });
+      void queryClient.invalidateQueries({ queryKey: qk.calendarRoot });
     },
     onError: toastError('Could not fetch'),
   });

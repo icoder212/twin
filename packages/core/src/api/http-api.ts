@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { sessionSchema } from '../domain/auth';
+import { calendarUpcomingSchema } from '../domain/calendar';
 import { automationPlanSchema, automationRunSchema, automationSchema } from '../domain/automation';
 import {
   alertSchema,
@@ -178,6 +179,12 @@ export function createHttpApi(options: HttpClientOptions): TwinDeskApi {
           method: 'PATCH',
           body: { enabled },
           schema: connectedSourceSchema,
+        }),
+    },
+    calendar: {
+      upcoming: (days = 7) =>
+        http.request(`/v1/calendar/upcoming?days=${Math.trunc(days)}`, {
+          schema: calendarUpcomingSchema,
         }),
     },
     notifications: {

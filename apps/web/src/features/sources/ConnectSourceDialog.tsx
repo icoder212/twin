@@ -8,6 +8,9 @@ import {
   type ConnectSourceInput,
   type ConnectedSource,
 } from '@twindesk/core';
+import { env } from '@/app/env';
+import { connectGoogleCalendar } from '@/features/calendar/google-access';
+import { useConnectGoogleCalendar } from '@/features/calendar/queries';
 import { zodResolver } from '@/lib/zod-resolver';
 import { Button } from '@/shared/ui/button';
 import { Dialog } from '@/shared/ui/dialog';
@@ -193,12 +196,23 @@ function ApiKeyForm({ source, onDone }: { source: ConnectedSource; onDone: () =>
 
 function OAuthForm({ source, onDone }: { source: ConnectedSource; onDone: () => void }) {
   const connect = useConnectSource();
+  const connectGoogle = useConnectGoogleCalendar();
   const [error, setError] = useState<string>();
   const scopes = source.scopes.length
     ? source.scopes
     : (REQUESTED_SCOPES[source.provider] ?? ['Only the access your tasks need']);
+  // Demo builds with a Google client sign in to the real Google Calendar from the browser.
+  const googleClientId = source.provider === 'google-workspace' ? env.googleClientId : undefined;
 
   const start = () => {
+    if (googleClientId) {
+      setError(undefined);
+      connectGoogle.mutate(connectGoogleCalendar(googleClientId), {
+        onSuccess: onDone,
+        onError: (e) => setError(userMessage(e)),
+      });
+      return;
+    }
     const parsed = connectSourceInputSchema.safeParse({
       sourceId: source.id,
       label: source.name,
@@ -217,6 +231,12 @@ function OAuthForm({ source, onDone }: { source: ConnectedSource; onDone: () => 
         You’ll sign in with {source.name} itself. We never see your password, and you can revoke
         access from your {source.name} account at any time.
       </p>
+      {googleClientId ? (
+        <p className="text-[13px] leading-relaxed text-fg-muted">
+          In the demo, access stays in this browser tab for up to an hour and is never stored. A
+          Google window opens; if nothing appears, allow pop-ups for this site.
+        </p>
+      ) : null}
       <div className="rounded-xl border border-line p-3">
         <p className="text-[13px] font-semibold text-fg">Access requested</p>
         <ul className="mt-2 space-y-1.5">
@@ -240,7 +260,11 @@ function OAuthForm({ source, onDone }: { source: ConnectedSource; onDone: () => 
         <Button variant="ghost" onClick={onDone}>
           Cancel
         </Button>
-        <Button variant="primary" loading={connect.isPending} onClick={start}>
+        <Button
+          variant="primary"
+          loading={connect.isPending || connectGoogle.isPending}
+          onClick={start}
+        >
           Continue with {source.name}
         </Button>
       </div>

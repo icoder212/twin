@@ -53,6 +53,11 @@ builds; a build pointed at the real API contains none of them.
   _Send now_.
 - **Source health:** _Connected sources_ shows 24 hours of fetch history, retries, and an
   alert when a source stops fetching.
+- **Your real Google Calendar:** in a build with `VITE_GOOGLE_CLIENT_ID` set, connect Google
+  Calendar from the dashboard or _Sources_. Your next 7 days appear on the dashboard, a reminder
+  shows in the app 10 minutes before each event, and the twin answers "What's on my calendar
+  today?" or "When is my next meeting?" from it. Access is read-only, held in the browser tab's
+  memory for up to an hour, and never stored. Setup: [deploy/README.md](deploy/README.md#google-calendar-in-the-demo).
 
 ## Scripts
 
@@ -76,6 +81,8 @@ apps/web/              React web app (standalone, and the embeddable /embed/twin
   src/features/<name>/ One folder per feature: pages, components, queries.ts
   src/shared/          Design system (ui/), shared components and hooks
   src/platform/        API adapter selection and context
+apps/api/              Cloudflare Worker: WhatsApp reminders before the owner's meetings (first
+                       backend slice; see apps/api/README.md)
 packages/core/         Platform-agnostic TypeScript: domain schemas, API contract, HTTP and SSE
                        clients, security utilities, advice checks, tenant presets, mock backend
 packages/embed-sdk/    Dependency-free SDK for host platforms (sandboxed iframe + postMessage)

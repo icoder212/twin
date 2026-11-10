@@ -8,6 +8,7 @@ export * from './domain/automation';
 export * from './domain/notifications';
 export * from './domain/operations';
 export * from './domain/overview';
+export * from './domain/calendar';
 
 // API contract and transport
 export * from './api/contracts';
@@ -22,6 +23,9 @@ export * from './security/sanitize';
 export * from './security/pii';
 export * from './security/url';
 export * from './security/ids';
+
+// Calendar
+export * from './calendar/google';
 
 // Notifications
 export * from './notifications/plan';

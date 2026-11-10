@@ -1,5 +1,6 @@
 import { createHttpApi, type TenantConfig, type TwinDeskApi } from '@twindesk/core';
 import { env } from '@/app/env';
+import { createGoogleCalendarFeed } from '@/features/calendar/google-access';
 import { sessionStore } from '@/lib/browser-store';
 
 export type AppApi = TwinDeskApi & { resetDemoData?: () => void };
@@ -21,7 +22,9 @@ export async function createApi(
   // credentials) from the output entirely rather than just never loading it.
   if (import.meta.env.VITE_API_MODE !== 'http') {
     const { createMockApi } = await import('@twindesk/core/mock');
-    return createMockApi({ tenant, store: sessionStore, speed: 1 });
+    // With a Google client configured, the demo's Google source reads your real calendar.
+    const calendar = env.googleClientId ? createGoogleCalendarFeed() : undefined;
+    return createMockApi({ tenant, store: sessionStore, speed: 1, calendar });
   }
   if (!env.apiBaseUrl) throw new Error('VITE_API_BASE_URL is required when VITE_API_MODE=http');
   return createHttpApi({

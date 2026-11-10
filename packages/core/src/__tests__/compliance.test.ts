@@ -10,6 +10,35 @@ import {
 } from '../mock/scenarios';
 import { getTenantPreset } from '../tenants/presets';
 import { ECONOMIC_EVENTS } from '../mock/fixtures';
+import type { CalendarUpcoming } from '../domain/calendar';
+
+const SAMPLE_CALENDAR: CalendarUpcoming = {
+  connection: 'connected',
+  calendarName: 'hello@example.com',
+  fetchedAt: '2026-10-30T09:00:00.000Z',
+  events: [
+    {
+      id: 'ev1',
+      title: 'Buy the dip review',
+      start: '2026-10-30T10:00:00.000Z',
+      end: '2026-10-30T10:30:00.000Z',
+      allDay: false,
+      location: 'Room 2',
+      tentative: false,
+      guests: 3,
+    },
+    {
+      id: 'ev2',
+      title: 'Coach call',
+      start: '2026-10-31T09:00:00.000Z',
+      end: '2026-10-31T09:45:00.000Z',
+      allDay: false,
+      joinUrl: 'https://meet.google.com/abc-defg-hij',
+      tentative: true,
+      guests: 1,
+    },
+  ],
+};
 
 const ctx = (question: string): ScenarioContext => ({
   user: {
@@ -47,6 +76,7 @@ const ctx = (question: string): ScenarioContext => ({
   pendingApprovals: () => [],
   openActionItems: () => [],
   events: () => ECONOMIC_EVENTS,
+  calendar: () => SAMPLE_CALENDAR,
 });
 
 const check = (text: string) =>
