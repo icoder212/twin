@@ -25,9 +25,11 @@ import {
   type NotificationEvent,
   type NotificationTopic,
   type Urgency,
+  ROUTABLE_TOPICS,
 } from '../domain/notifications';
 import type { AuditAction, AuditEvent, Notification } from '../domain/operations';
 import {
+  chosenChannels,
   planDeliveries,
   planEscalation,
   type DeliveryContext,
@@ -127,7 +129,7 @@ export function createNotifyApi(deps: NotifyDeps) {
     const d = data(session);
     const ctx = context(session);
     const at = now().toISOString();
-    const planned = planDeliveries(input.urgency, ctx, input.options);
+    const planned = planDeliveries(input, ctx, input.options);
     const escalation = input.options?.scheduled ? null : planEscalation(input.urgency, ctx);
     const event: NotificationEvent = {
       id: createId('nev'),
@@ -331,10 +333,10 @@ export function createNotifyApi(deps: NotifyDeps) {
       const session = requireSession();
       await latency(250, 250);
       const policy = db.policy();
-      for (const urgency of ['info', 'important', 'critical'] as const) {
-        assertAllowed(parsed.routing[urgency], `routing.${urgency}`);
+      for (const topic of ROUTABLE_TOPICS) {
+        assertAllowed(parsed.routing[topic], `routing.${topic}`);
         // The app always receives every notification.
-        if (!parsed.routing[urgency].includes('in-app')) parsed.routing[urgency].unshift('in-app');
+        if (!parsed.routing[topic].includes('in-app')) parsed.routing[topic].unshift('in-app');
       }
       if (policy.requireMinimalContent && parsed.privacy !== 'minimal') {
         throw new ApiError('validation', 'Your firm requires minimal wording outside the app.', {
@@ -532,7 +534,14 @@ export function createNotifyApi(deps: NotifyDeps) {
           body: 'This is how critical alerts reach you. Acknowledge it in the app to stop the escalation.',
         },
       };
-      return dispatch(session, { topic: 'test', urgency: level, ...copy[level] });
+      // A test reaches every channel chosen for any alert type.
+      const channels = chosenChannels(data(session).notify.preferences);
+      return dispatch(session, {
+        topic: 'test',
+        urgency: level,
+        ...copy[level],
+        options: { channels },
+      });
     },
   };
 

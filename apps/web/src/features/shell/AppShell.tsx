@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Outlet, useLocation, useNavigation } from 'react-router';
+import { RealAccountSync } from '@/features/account/RealAccountSync';
 import { useTenant } from '@/features/tenant/tenant-context';
 import { CommandPalette } from './CommandPalette';
 import { IdleTimeoutDialog } from './IdleTimeoutDialog';
@@ -72,6 +73,7 @@ export function AppShell() {
       <MobileNav />
       <CommandPalette />
       <IdleTimeoutDialog />
+      {import.meta.env.VITE_API_MODE !== 'http' ? <RealAccountSync /> : null}
     </div>
   );
 }

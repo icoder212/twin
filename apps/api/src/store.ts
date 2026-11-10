@@ -1,3 +1,4 @@
+import { notificationEventSchema, type NotificationEvent } from '@twindesk/core';
 import type { D1Database } from './worker-types';
 
 export interface GoogleLink {
@@ -5,6 +6,12 @@ export interface GoogleLink {
   refreshSealed: string;
   accessSealed: string | null;
   accessExpiresAt: number | null;
+  connectedAt: number;
+}
+
+export interface StoredNotification {
+  event: NotificationEvent;
+  read: boolean;
 }
 
 /** Persistence the reminder run needs. D1 in production; an in-memory version in tests. */
@@ -16,12 +23,47 @@ export interface Store {
   deleteLink(): Promise<void>;
   /** True only the first time a key is claimed, so each meeting gets one message. */
   claimReminder(key: string, at: number): Promise<boolean>;
-  /** Gives a claim back after a failed send, so the next run tries again. */
+  /** Gives a claim back when a reminder could not be recorded, so the next run tries again. */
   releaseReminder(key: string): Promise<void>;
-  markSent(key: string, messageId: string): Promise<void>;
-  /** Delivery receipts from the WhatsApp webhook: sent, delivered, read or failed. */
-  updateDelivery(messageId: string, status: string): Promise<void>;
   pruneReminders(before: number): Promise<void>;
+
+  createSession(
+    idHash: string,
+    email: string,
+    csrf: string,
+    at: number,
+    expiresAt: number,
+  ): Promise<void>;
+  getSession(idHash: string, now: number): Promise<{ email: string; csrf: string } | null>;
+  deleteSession(idHash: string): Promise<void>;
+
+  getSetting(key: string): Promise<string | null>;
+  putSetting(key: string, value: string, at: number): Promise<void>;
+
+  /** Inserts or replaces one notification. */
+  saveNotification(event: NotificationEvent, read: boolean): Promise<void>;
+  getNotification(id: string): Promise<StoredNotification | null>;
+  /** Newest first. */
+  listNotifications(limit: number): Promise<StoredNotification[]>;
+  markRead(ids: string[]): Promise<void>;
+  /** Links a provider's message id to a notification, for delivery receipts. */
+  recordOutbound(messageId: string, notificationId: string, channel: string): Promise<void>;
+  notificationForMessage(messageId: string): Promise<string | null>;
+}
+
+interface NotificationRow {
+  event: string;
+  read: number;
+}
+
+/** Rows were written by this server, but an unreadable one is skipped rather than trusted. */
+function toStored(row: NotificationRow): StoredNotification | null {
+  try {
+    const event = notificationEventSchema.safeParse(JSON.parse(row.event));
+    return event.success ? { event: event.data, read: row.read === 1 } : null;
+  } catch {
+    return null;
+  }
 }
 
 interface LinkRow {
@@ -29,6 +71,7 @@ interface LinkRow {
   refresh_sealed: string;
   access_sealed: string | null;
   access_expires_at: number | null;
+  connected_at: number;
 }
 
 export function d1Store(db: D1Database): Store {
@@ -36,7 +79,7 @@ export function d1Store(db: D1Database): Store {
     async getLink() {
       const row = await db
         .prepare(
-          'SELECT email, refresh_sealed, access_sealed, access_expires_at FROM google_link WHERE id = 1',
+          'SELECT email, refresh_sealed, access_sealed, access_expires_at, connected_at FROM google_link WHERE id = 1',
         )
         .first<LinkRow>();
       return row
@@ -45,6 +88,7 @@ export function d1Store(db: D1Database): Store {
             refreshSealed: row.refresh_sealed,
             accessSealed: row.access_sealed,
             accessExpiresAt: row.access_expires_at,
+            connectedAt: row.connected_at,
           }
         : null;
     },
@@ -85,20 +129,84 @@ export function d1Store(db: D1Database): Store {
     async releaseReminder(key) {
       await db.prepare('DELETE FROM reminders WHERE event_key = ?').bind(key).run();
     },
-    async markSent(key, messageId) {
-      await db
-        .prepare("UPDATE reminders SET message_id = ?, status = 'sent' WHERE event_key = ?")
-        .bind(messageId, key)
-        .run();
-    },
-    async updateDelivery(messageId, status) {
-      await db
-        .prepare('UPDATE reminders SET status = ? WHERE message_id = ?')
-        .bind(status, messageId)
-        .run();
-    },
     async pruneReminders(before) {
       await db.prepare('DELETE FROM reminders WHERE claimed_at < ?').bind(before).run();
+      await db.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(before).run();
+    },
+    async createSession(idHash, email, csrf, at, expiresAt) {
+      await db
+        .prepare(
+          'INSERT INTO sessions (id_hash, email, csrf, created_at, expires_at) VALUES (?, ?, ?, ?, ?)',
+        )
+        .bind(idHash, email, csrf, at, expiresAt)
+        .run();
+    },
+    async getSession(idHash, now) {
+      return db
+        .prepare('SELECT email, csrf FROM sessions WHERE id_hash = ? AND expires_at > ?')
+        .bind(idHash, now)
+        .first<{ email: string; csrf: string }>();
+    },
+    async deleteSession(idHash) {
+      await db.prepare('DELETE FROM sessions WHERE id_hash = ?').bind(idHash).run();
+    },
+    async getSetting(key) {
+      const row = await db
+        .prepare('SELECT value FROM settings WHERE key = ?')
+        .bind(key)
+        .first<{ value: string }>();
+      return row?.value ?? null;
+    },
+    async putSetting(key, value, at) {
+      await db
+        .prepare(
+          `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        )
+        .bind(key, value, at)
+        .run();
+    },
+    async saveNotification(event, read) {
+      await db
+        .prepare(
+          'INSERT OR REPLACE INTO notifications (id, created_at, read, event) VALUES (?, ?, ?, ?)',
+        )
+        .bind(event.id, Date.parse(event.createdAt), read ? 1 : 0, JSON.stringify(event))
+        .run();
+    },
+    async getNotification(id) {
+      const row = await db
+        .prepare('SELECT event, read FROM notifications WHERE id = ?')
+        .bind(id)
+        .first<NotificationRow>();
+      return row ? toStored(row) : null;
+    },
+    async listNotifications(limit) {
+      const { results } = await db
+        .prepare('SELECT event, read FROM notifications ORDER BY created_at DESC LIMIT ?')
+        .bind(limit)
+        .all<NotificationRow>();
+      return results.map(toStored).filter((n): n is StoredNotification => n !== null);
+    },
+    async markRead(ids) {
+      for (const id of ids.slice(0, 100)) {
+        await db.prepare('UPDATE notifications SET read = 1 WHERE id = ?').bind(id).run();
+      }
+    },
+    async recordOutbound(messageId, notificationId, channel) {
+      await db
+        .prepare(
+          'INSERT OR REPLACE INTO outbound_messages (message_id, notification_id, channel) VALUES (?, ?, ?)',
+        )
+        .bind(messageId, notificationId, channel)
+        .run();
+    },
+    async notificationForMessage(messageId) {
+      const row = await db
+        .prepare('SELECT notification_id FROM outbound_messages WHERE message_id = ?')
+        .bind(messageId)
+        .first<{ notification_id: string }>();
+      return row?.notification_id ?? null;
     },
   };
 }

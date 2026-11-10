@@ -53,6 +53,10 @@ builds; a build pointed at the real API contains none of them.
   _Send now_.
 - **Source health:** _Connected sources_ shows 24 hours of fetch history, retries, and an
   alert when a source stops fetching.
+- **Your real notifications:** with the server deployed (`apps/api`), _Notifications_ offers
+  _Sign in with Google_ for the owner's account. The bell, the delivery log and the routing table
+  then show and control real notifications: meeting reminders, and what went to WhatsApp and
+  email. _Back to the demo_ switches back. Each alert type has its own channels.
 - **Your real Google Calendar:** in a build with `VITE_GOOGLE_CLIENT_ID` set, connect Google
   Calendar from the dashboard or _Sources_. Your next 7 days appear on the dashboard, a reminder
   shows in the app 10 minutes before each event, and the twin answers "What's on my calendar

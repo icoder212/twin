@@ -1,5 +1,6 @@
 import { createHttpApi, type TenantConfig, type TwinDeskApi } from '@twindesk/core';
 import { env } from '@/app/env';
+import { withRealNotifications } from '@/features/account/real-account';
 import { createGoogleCalendarFeed } from '@/features/calendar/google-access';
 import { sessionStore } from '@/lib/browser-store';
 
@@ -24,7 +25,10 @@ export async function createApi(
     const { createMockApi } = await import('@twindesk/core/mock');
     // With a Google client configured, the demo's Google source reads your real calendar.
     const calendar = env.googleClientId ? createGoogleCalendarFeed() : undefined;
-    return createMockApi({ tenant, store: sessionStore, speed: 1, calendar });
+    // Notifications switch to the owner's real account on the server while they are signed in.
+    return withRealNotifications(
+      createMockApi({ tenant, store: sessionStore, speed: 1, calendar }),
+    );
   }
   if (!env.apiBaseUrl) throw new Error('VITE_API_BASE_URL is required when VITE_API_MODE=http');
   return createHttpApi({

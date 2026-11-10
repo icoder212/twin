@@ -9,6 +9,7 @@ export * from './domain/notifications';
 export * from './domain/operations';
 export * from './domain/overview';
 export * from './domain/calendar';
+export * from './domain/account';
 
 // API contract and transport
 export * from './api/contracts';

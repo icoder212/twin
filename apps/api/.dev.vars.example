@@ -20,3 +20,6 @@ WHATSAPP_APP_SECRET=
 WHATSAPP_VERIFY_TOKEN=
 # Your WhatsApp number in international format, digits only, e.g. 447700900123.
 WHATSAPP_TO=
+
+# Resend > API Keys > a key with Sending access. Optional: without it, email is reported as not set up.
+RESEND_API_KEY=

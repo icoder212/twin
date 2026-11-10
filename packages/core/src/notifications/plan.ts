@@ -2,17 +2,20 @@ import {
   CHANNEL_LABELS,
   DELIVERY_CHANNELS,
   isContactChannel,
+  isRoutableTopic,
+  ROUTABLE_TOPICS,
   type Contact,
   type ContactChannel,
   type DeliveryChannel,
   type NotificationPolicy,
   type NotificationPreferences,
+  type NotificationTopic,
   type Urgency,
 } from '../domain/notifications';
 
 /**
  * Decides where one notification goes. The same rules run on the server when a real alert fires
- * and in the client to explain, ahead of time, what will happen to each urgency.
+ * and in the client to explain, ahead of time, what will happen to each alert type.
  */
 export interface DeliveryContext {
   preferences: NotificationPreferences;
@@ -39,8 +42,15 @@ export interface PlannedDelivery {
   note?: string;
 }
 
+/** What the rules need to know about a notification: its type picks the channels, its urgency
+ * decides quiet hours, the daily summary and escalation. */
+export interface PlanEvent {
+  topic: NotificationTopic;
+  urgency: Urgency;
+}
+
 export interface PlanOptions {
-  /** Explicit channels, e.g. a briefing's own list, instead of the urgency routing. */
+  /** Explicit channels, e.g. a briefing's or an alert's own list, instead of the type's routing. */
   channels?: DeliveryChannel[];
   /** Scheduled messages the user set a time for ignore quiet hours and the daily summary. */
   scheduled?: boolean;
@@ -67,12 +77,20 @@ export function isQuietNow(ctx: DeliveryContext): boolean {
   return inWindow(ctx.localMinutes, toMinutes(quiet.start), toMinutes(quiet.end));
 }
 
-/** The app is always included; the rest follow the routing, in a stable order. */
+/** The app is always included; the rest follow the type's routing, in a stable order. */
 export function channelsFor(
-  urgency: Urgency,
+  topic: NotificationTopic,
   preferences: NotificationPreferences,
 ): DeliveryChannel[] {
-  const chosen = new Set<DeliveryChannel>(['in-app', ...preferences.routing[urgency]]);
+  const routed = isRoutableTopic(topic) ? preferences.routing[topic] : [];
+  const chosen = new Set<DeliveryChannel>(['in-app', ...routed]);
+  return DELIVERY_CHANNELS.filter((c) => chosen.has(c));
+}
+
+/** Every channel chosen for at least one alert type: where a test notification goes. */
+export function chosenChannels(preferences: NotificationPreferences): DeliveryChannel[] {
+  const chosen = new Set<DeliveryChannel>(['in-app']);
+  for (const topic of ROUTABLE_TOPICS) for (const c of preferences.routing[topic]) chosen.add(c);
   return DELIVERY_CHANNELS.filter((c) => chosen.has(c));
 }
 
@@ -81,7 +99,7 @@ function contactFor(contacts: Contact[], channel: ContactChannel): Contact | und
 }
 
 export function planDeliveries(
-  urgency: Urgency,
+  { topic, urgency }: PlanEvent,
   ctx: DeliveryContext,
   options: PlanOptions = {},
 ): PlannedDelivery[] {
@@ -91,7 +109,7 @@ export function planDeliveries(
   const digest = preferences.digest;
   const channels = options.channels
     ? DELIVERY_CHANNELS.filter((c) => c === 'in-app' || options.channels?.includes(c))
-    : channelsFor(urgency, preferences);
+    : channelsFor(topic, preferences);
 
   return channels.map((channel): PlannedDelivery => {
     if (channel === 'in-app') return { channel, status: 'send' };

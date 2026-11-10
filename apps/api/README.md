@@ -11,12 +11,25 @@ WhatsApp Cloud API for each timed meeting starting within `REMINDER_MINUTES`. Ea
 reminded once; declined and all-day events are skipped. Delivery receipts arrive on
 `/whatsapp/webhook`.
 
-| Route                          | Purpose                                              |
-| ------------------------------ | ---------------------------------------------------- |
-| `GET /health`                  | `{ ok, google: "connected" \| "not-connected" }`     |
-| `GET /google/connect`          | Starts Google sign-in (authorisation code + PKCE)    |
-| `GET /google/callback`         | Finishes it; only `OWNER_GOOGLE_ACCOUNT` is accepted |
-| `GET`/`POST /whatsapp/webhook` | Meta's verification and signed delivery receipts     |
+| Route                          | Purpose                                                    |
+| ------------------------------ | ---------------------------------------------------------- |
+| `GET /health`                  | `{ ok, google: "connected" \| "not-connected" }`           |
+| `GET /google/connect`          | Connects the calendar here directly (no app sign-in)       |
+| `GET /v1/auth/google/start`    | Sign-in from the app (`?origin=` must be in `APP_ORIGINS`) |
+| `GET /v1/auth/google/callback` | Finishes it: stores calendar access and starts a session   |
+| `GET /v1/account`              | Who is signed in, and which channels the server can use    |
+| `/v1/notifications/*`          | The app's notification contract: bell, log, routing, tests |
+| `GET`/`POST /whatsapp/webhook` | Meta's verification and signed delivery receipts           |
+
+The app reaches `/v1` on its own domain: Vercel rewrites `/v1/*` here (`apps/web/vercel.json`),
+and `npm run dev` proxies it when `API_PROXY_TARGET` is set in `apps/web/.env.local`. The session
+and CSRF cookies are therefore first-party, and the app's CSP needs no new origin.
+
+**Routing:** each notification goes to the app and to the channels the owner chose for its type
+(Notifications → Delivery), using the shared `planDeliveries` rules and quiet hours. Every
+outcome, sent, skipped or failed, is stored with the notification, so the app shows it. WhatsApp
+needs an approved template per type: `meeting_reminder` covers meeting reminders and tests;
+other types are recorded as skipped on WhatsApp until they have one. Email uses Resend.
 
 ## Security
 
@@ -24,6 +37,9 @@ reminded once; declined and all-day events are skipped. Delivery receipts arrive
   in the clear. The sign-in state is sealed too and tied to the browser by a short-lived cookie.
 - Only the configured Google account can connect; any other is refused and nothing is saved.
 - Webhook bodies are read only when signed with the app secret (`X-Hub-Signature-256`).
+- App sessions: a random token in an HttpOnly `__Host-` cookie (only its hash is stored), 12-hour
+  lifetime. Changes need the CSRF token from the readable `twindesk_csrf` cookie, the app's
+  `X-Requested-With` header and, when sent, an `Origin` in `APP_ORIGINS`.
 - Logs carry counts, statuses and error messages only: no tokens, numbers or event titles.
 - Every deployment-specific value is a secret. `wrangler.jsonc` holds nothing personal.
 

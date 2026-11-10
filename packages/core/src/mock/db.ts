@@ -38,7 +38,8 @@ import {
 import { DEMO_USERS } from './users';
 
 export interface UserData {
-  version: 2;
+  /** Bumped when the stored shape changes, so older demo data is reseeded. */
+  version: 3;
   deskType: DeskType;
   automations: Automation[];
   runs: Record<string, AutomationRun[]>;
@@ -49,6 +50,8 @@ export interface UserData {
   sources: ConnectedSource[];
   actionItems: ActionItem[];
   notes: Array<{ id: string; text: string; at: string }>;
+  /** Meetings already reminded ("eventId|start"), so each one is reminded once. */
+  calendarReminders: string[];
   notify: {
     preferences: NotificationPreferences;
     contacts: Contact[];
@@ -120,7 +123,7 @@ export class MockDb {
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as UserData;
-        if (parsed.version === 2) data = parsed;
+        if (parsed.version === 3) data = parsed;
       } catch {
         // Corrupt demo state: reseed below.
       }
@@ -176,7 +179,7 @@ export class MockDb {
     const { automations, runs } = seedAutomations(user, now);
     const policy = this.policy();
     return {
-      version: 2,
+      version: 3,
       deskType: user.deskType,
       automations,
       runs,
@@ -187,6 +190,7 @@ export class MockDb {
       sources: seedSources(now.getTime()),
       actionItems: seedActionItems(),
       notes: [],
+      calendarReminders: [],
       notify: {
         preferences: seedNotificationPreferences(policy),
         contacts: seedContacts(user, policy, now.getTime()),

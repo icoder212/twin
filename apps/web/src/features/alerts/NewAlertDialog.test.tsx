@@ -30,7 +30,7 @@ const channel = (name: string) =>
   screen.getByRole('checkbox', { name: new RegExp(`^${name}`), hidden: true });
 
 describe('NewAlertDialog', () => {
-  it('ticks channels from the delivery settings and sends the chosen urgency', async () => {
+  it('ticks channels from the routing for this alert type and keeps them across urgencies', async () => {
     const user = userEvent.setup();
     const { api } = await openDialog();
 
@@ -39,9 +39,11 @@ describe('NewAlertDialog', () => {
     expect(channel('Phone push')).toBeChecked();
     expect(channel('WhatsApp')).not.toBeChecked();
 
+    // Urgency decides quiet hours and escalation; the channels stay as chosen.
     await user.click(screen.getByRole('radio', { name: /critical/i, hidden: true }));
-    expect(channel('WhatsApp')).toBeChecked();
-    expect(channel('Microsoft Teams')).toBeChecked();
+    expect(channel('WhatsApp')).not.toBeChecked();
+    await user.click(channel('WhatsApp'));
+    await user.click(channel('Microsoft Teams'));
     expect(channel('Microsoft Teams')).toHaveAccessibleDescription('Not verified yet');
 
     await user.type(screen.getByLabelText('Instrument'), 'eurgbp');
@@ -51,8 +53,16 @@ describe('NewAlertDialog', () => {
     await waitFor(async () => {
       const alert = (await api.alerts.list()).find((a) => a.instrument === 'EURGBP');
       expect(alert).toMatchObject({ urgency: 'critical' });
-      expect(alert?.channels).toEqual(['in-app', 'push', 'email', 'whatsapp', 'teams']);
+      expect(alert?.channels).toEqual(['in-app', 'push', 'whatsapp', 'teams']);
     });
+  });
+
+  it('switches to the routing of another alert type', async () => {
+    const user = userEvent.setup();
+    await openDialog();
+    await user.click(screen.getByRole('radio', { name: /loss limit/i, hidden: true }));
+    expect(channel('WhatsApp')).toBeChecked();
+    expect(channel('Email')).toBeChecked();
   });
 
   it('disables channels the firm has turned off', async () => {

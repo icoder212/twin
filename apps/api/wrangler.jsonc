@@ -20,6 +20,8 @@
     "GRAPH_API_VERSION": "v26.0",
     "REMINDER_MINUTES": "10",
     "TIMEZONE": "Europe/London",
+    "APP_ORIGINS": "https://twin.alchmai.com,https://twin-umber-nu.vercel.app,http://localhost:5173",
+    "RESEND_FROM": "Desk Twin <onboarding@resend.dev>",
   },
   "observability": { "enabled": true },
 }

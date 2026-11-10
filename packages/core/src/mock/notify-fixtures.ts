@@ -19,9 +19,14 @@ export function seedNotificationPreferences(policy: NotificationPolicy): Notific
     channels.filter((c) => policy.allowedChannels.includes(c));
   return {
     routing: {
-      info: allowed(['in-app', 'email']),
-      important: allowed(['in-app', 'push', 'email']),
-      critical: allowed(['in-app', 'push', 'email', 'whatsapp', 'teams']),
+      calendar: allowed(['in-app', 'push']),
+      price: allowed(['in-app', 'push']),
+      release: allowed(['in-app', 'push']),
+      'loss-limit': allowed(['in-app', 'push', 'email', 'whatsapp']),
+      'session-rule': allowed(['in-app', 'push', 'email']),
+      'source-health': allowed(['in-app', 'push', 'email', 'whatsapp', 'teams']),
+      approval: allowed(['in-app', 'email']),
+      automation: allowed(['in-app', 'email']),
     },
     quietHours: {
       mode: 'outside-session',

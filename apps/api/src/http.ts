@@ -35,3 +35,15 @@ export function cookie(request: Request, name: string): string | null {
   }
   return null;
 }
+
+/** A JSON error the app's HTTP client shows as is: `{ message }`, at most 200 characters. */
+export function apiError(status: number, message: string): Response {
+  return json({ message: message.slice(0, 200) }, status);
+}
+
+/** The same response with cookies added; each needs its own Set-Cookie header. */
+export function withCookies(response: Response, cookies: string[]): Response {
+  const headers = new Headers(response.headers);
+  for (const c of cookies) headers.append('Set-Cookie', c);
+  return new Response(response.body, { status: response.status, headers });
+}

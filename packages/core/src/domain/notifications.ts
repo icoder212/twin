@@ -52,6 +52,27 @@ const hhmmSchema = z
   .string()
   .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Use a 24-hour time such as 07:30');
 
+/**
+ * Alert types the user routes one by one. Briefings have their own channels, and a test goes to
+ * every channel chosen for any type.
+ */
+export const ROUTABLE_TOPICS = [
+  'calendar',
+  'price',
+  'release',
+  'loss-limit',
+  'session-rule',
+  'source-health',
+  'approval',
+  'automation',
+] as const satisfies readonly NotificationTopic[];
+export const routableTopicSchema = z.enum(ROUTABLE_TOPICS);
+export type RoutableTopic = z.infer<typeof routableTopicSchema>;
+
+export function isRoutableTopic(topic: NotificationTopic): topic is RoutableTopic {
+  return (ROUTABLE_TOPICS as readonly string[]).includes(topic);
+}
+
 // ---------------------------------------------------------------------------
 // Firm policy: which channels a firm allows, set by an administrator
 // ---------------------------------------------------------------------------
@@ -87,12 +108,8 @@ export const quietModeSchema = z.enum(['off', 'outside-session', 'custom']);
 export type QuietMode = z.infer<typeof quietModeSchema>;
 
 export const notificationPreferencesSchema = z.object({
-  /** Channels per urgency. The app is always included, whatever is chosen here. */
-  routing: z.object({
-    info: z.array(deliveryChannelSchema),
-    important: z.array(deliveryChannelSchema),
-    critical: z.array(deliveryChannelSchema),
-  }),
+  /** Channels per alert type. The app always gets every notification, whatever is chosen here. */
+  routing: z.record(routableTopicSchema, z.array(deliveryChannelSchema)),
   quietHours: z.object({
     mode: quietModeSchema,
     start: hhmmSchema,
@@ -178,6 +195,7 @@ export type ConfirmVerificationInput = z.infer<typeof confirmVerificationInputSc
 // ---------------------------------------------------------------------------
 
 export const NOTIFICATION_TOPICS = [
+  'calendar',
   'price',
   'loss-limit',
   'release',
@@ -193,6 +211,7 @@ export type NotificationTopic = z.infer<typeof notificationTopicSchema>;
 
 /** Neutral topic names, used as the whole message when content must be minimal. */
 export const TOPIC_LABELS: Record<NotificationTopic, string> = {
+  calendar: 'Meeting reminder',
   price: 'Price alert',
   'loss-limit': 'Loss limit alert',
   release: 'Release reminder',
@@ -202,6 +221,53 @@ export const TOPIC_LABELS: Record<NotificationTopic, string> = {
   automation: 'Workflow update',
   briefing: 'Briefing ready',
   test: 'Test alert',
+};
+
+/** How each alert type is described, and its usual urgency (which decides quiet hours). */
+export const TOPIC_ROUTING: Record<
+  RoutableTopic,
+  { label: string; description: string; urgency: Urgency }
+> = {
+  calendar: {
+    label: 'Meeting reminders',
+    description: '10 minutes before each meeting in your calendar',
+    urgency: 'important',
+  },
+  price: {
+    label: 'Price alerts',
+    description: 'An instrument reaches a level you set',
+    urgency: 'important',
+  },
+  release: {
+    label: 'Economic releases',
+    description: 'Shortly before a release on your watchlist',
+    urgency: 'important',
+  },
+  'loss-limit': {
+    label: 'Loss limits',
+    description: 'As your daily loss limit is used up',
+    urgency: 'critical',
+  },
+  'session-rule': {
+    label: 'Session rules',
+    description: 'A trade opens outside your session rule',
+    urgency: 'important',
+  },
+  'source-health': {
+    label: 'Data source problems',
+    description: 'A connected source stops fetching',
+    urgency: 'critical',
+  },
+  approval: {
+    label: 'Approvals waiting',
+    description: 'Messages and drafts waiting for you',
+    urgency: 'info',
+  },
+  automation: {
+    label: 'Workflow updates',
+    description: 'A task or workflow finishes or stops',
+    urgency: 'info',
+  },
 };
 
 export const deliveryStatusSchema = z.enum(['delivered', 'read', 'held', 'skipped', 'failed']);

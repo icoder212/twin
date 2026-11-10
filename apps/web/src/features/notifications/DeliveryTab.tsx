@@ -4,10 +4,13 @@ import {
   CHANNEL_LABELS,
   DEFAULT_SESSION_HOURS,
   DELIVERY_CHANNELS,
+  ROUTABLE_TOPICS,
+  TOPIC_ROUTING,
   URGENCIES,
   URGENCY_LABELS,
   isContactChannel,
   isQuietNow,
+  isRoutableTopic,
   localClock,
   planDeliveries,
   planEscalation,
@@ -19,6 +22,7 @@ import {
   type NotificationPreferences,
   type PlannedDelivery,
   type RenderableEvent,
+  type RoutableTopic,
   type Urgency,
 } from '@twindesk/core';
 import { useTenant } from '@/features/tenant/tenant-context';
@@ -130,18 +134,18 @@ function DeliveryForm({
     value: NotificationPreferences[K],
   ) => setDraft((d) => ({ ...d, [key]: value }));
 
-  const toggleChannel = (urgency: Urgency, channel: DeliveryChannel) =>
+  const toggleChannel = (topic: RoutableTopic, channel: DeliveryChannel) =>
     setDraft((d) => {
-      const current = d.routing[urgency];
+      const current = d.routing[topic];
       const next = current.includes(channel)
         ? current.filter((c) => c !== channel)
         : [...current, channel];
-      return { ...d, routing: { ...d.routing, [urgency]: next } };
+      return { ...d, routing: { ...d.routing, [topic]: next } };
     });
 
   const unverified = [
     ...new Set(
-      URGENCIES.flatMap((u) => draft.routing[u]).filter(
+      ROUTABLE_TOPICS.flatMap((t) => draft.routing[t]).filter(
         (c) =>
           isContactChannel(c) &&
           policy.allowedChannels.includes(c) &&
@@ -180,19 +184,19 @@ function DeliveryForm({
         </div>
 
         <Section
-          title="Where each urgency goes"
-          description="Every notification appears in the app. Pick where else each urgency reaches you."
+          title="Where each alert goes"
+          description="Every notification appears in the app. Pick where else each type of alert reaches you."
         >
           <div className="space-y-3">
-            {URGENCIES.map((urgency) => (
-              <UrgencyRow
-                key={urgency}
-                urgency={urgency}
-                selected={draft.routing[urgency]}
+            {ROUTABLE_TOPICS.map((topic) => (
+              <TopicRow
+                key={topic}
+                topic={topic}
+                selected={draft.routing[topic]}
                 policy={policy}
                 contacts={contacts}
-                plan={planDeliveries(urgency, ctx)}
-                onToggle={(channel) => toggleChannel(urgency, channel)}
+                plan={planDeliveries({ topic, urgency: TOPIC_ROUTING[topic].urgency }, ctx)}
+                onToggle={(channel) => toggleChannel(topic, channel)}
               />
             ))}
           </div>
@@ -420,34 +424,35 @@ function DeliveryForm({
   );
 }
 
-function UrgencyRow({
-  urgency,
+function TopicRow({
+  topic,
   selected,
   policy,
   contacts,
   plan,
   onToggle,
 }: {
-  urgency: Urgency;
+  topic: RoutableTopic;
   selected: DeliveryChannel[];
   policy: NotificationPolicy;
   contacts: Contact[];
   plan: PlannedDelivery[];
   onToggle: (channel: DeliveryChannel) => void;
 }) {
+  const { label, description, urgency } = TOPIC_ROUTING[topic];
   const meta = URGENCY_META[urgency];
-  const { label, examples } = URGENCY_LABELS[urgency];
   return (
     <div className="rounded-xl border border-line p-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <Badge tone={meta.tone}>
-          <meta.icon aria-hidden /> {label}
+        <span className="text-[13.5px] font-semibold text-fg">{label}</span>
+        <Badge tone={meta.tone} title="Usual urgency, which decides quiet hours and escalation">
+          <meta.icon aria-hidden /> {URGENCY_LABELS[urgency].label}
         </Badge>
-        <span className="text-[13px] text-fg-subtle">{examples}</span>
+        <span className="text-[13px] text-fg-subtle">{description}</span>
       </div>
       <div
         role="group"
-        aria-label={`Channels for ${label.toLowerCase()} notifications`}
+        aria-label={`Channels for ${label.toLowerCase()}`}
         className="mt-3 flex flex-wrap gap-2"
       >
         {DELIVERY_CHANNELS.map((channel) => {
@@ -504,7 +509,7 @@ const PLAN_STATUS = {
   skipped: { icon: CircleSlash, label: 'skipped', className: 'text-fg-subtle' },
 } as const;
 
-/** What would happen to a notification of this urgency if it arrived right now. */
+/** What would happen to an alert of this type if it arrived right now. */
 function PlanLine({ plan }: { plan: PlannedDelivery[] }) {
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 text-[12px]">
@@ -545,7 +550,10 @@ function PreviewPanel({
   const to = isContactChannel(channel)
     ? contacts.find((c) => c.channel === channel)?.address
     : undefined;
-  const chosen = channel === 'in-app' || draft.routing[urgency].includes(channel);
+  const sampleTopic = SAMPLES[urgency].topic;
+  const chosen =
+    channel === 'in-app' ||
+    (isRoutableTopic(sampleTopic) && draft.routing[sampleTopic].includes(channel));
 
   return (
     <Card className="xl:sticky xl:top-24">
@@ -590,8 +598,10 @@ function PreviewPanel({
         {!chosen ? (
           <p className="text-[12px] text-fg-subtle">
             {CHANNEL_LABELS[channel]} is not chosen for{' '}
-            {URGENCY_LABELS[urgency].label.toLowerCase()} notifications, so this is how it would
-            look if you turned it on.
+            {isRoutableTopic(sampleTopic)
+              ? TOPIC_ROUTING[sampleTopic].label.toLowerCase()
+              : 'this alert'}
+            , so this is how it would look if you turned it on.
           </p>
         ) : null}
         <div className="border-t border-line pt-4">

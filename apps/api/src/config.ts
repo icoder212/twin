@@ -31,6 +31,20 @@ const configSchema = z.object({
   GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/),
   REMINDER_MINUTES: z.coerce.number().int().min(1).max(120),
   TIMEZONE: z.string().min(1),
+  /** Sites allowed to sign in here, comma-separated, e.g. https://twin.alchmai.com. */
+  APP_ORIGINS: z
+    .string()
+    .transform((v) =>
+      v
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.url()).min(1)),
+  /** Resend API key; without it email is reported as not set up. */
+  RESEND_API_KEY: optionalSecret,
+  /** Sender, e.g. "Desk Twin <onboarding@resend.dev>" (Resend's test sender reaches only you). */
+  RESEND_FROM: z.string().min(3),
 });
 export type Config = z.infer<typeof configSchema>;
 

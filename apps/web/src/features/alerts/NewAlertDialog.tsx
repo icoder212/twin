@@ -55,9 +55,14 @@ const DEFAULTS: Omit<FormValues, 'kind' | 'urgency' | 'channels'> = {
 
 /** Used only if the delivery settings cannot be loaded, so an alert can still be set. */
 const FALLBACK_ROUTING: NotificationPreferences['routing'] = {
-  info: ['in-app'],
-  important: ['in-app', 'push'],
-  critical: ['in-app', 'push', 'email'],
+  calendar: ['in-app'],
+  price: ['in-app', 'push'],
+  release: ['in-app', 'push'],
+  'loss-limit': ['in-app', 'push', 'email'],
+  'session-rule': ['in-app', 'push'],
+  'source-health': ['in-app', 'push', 'email'],
+  approval: ['in-app'],
+  automation: ['in-app'],
 };
 
 interface DeliveryOptions {
@@ -127,10 +132,10 @@ function NewAlertForm({
   const create = useCreateAlert();
   const formId = useId();
   const { routing, allowed, verified } = options;
-  // The app is always included; the rest follow the user's routing for that urgency.
-  const channelsFor = (urgency: Urgency): DeliveryChannel[] =>
+  // The app is always included; the rest follow the user's routing for this type of alert.
+  const channelsFor = (alertKind: AlertKind): DeliveryChannel[] =>
     DELIVERY_CHANNELS.filter(
-      (c) => c === 'in-app' || (routing[urgency].includes(c) && allowed.includes(c)),
+      (c) => c === 'in-app' || (routing[alertKind].includes(c) && allowed.includes(c)),
     );
   const initialUrgency = defaultUrgency(initialKind, Number(DEFAULTS.thresholdPct));
   const {
@@ -146,7 +151,7 @@ function NewAlertForm({
       ...DEFAULTS,
       kind: initialKind,
       urgency: initialUrgency,
-      channels: channelsFor(initialUrgency),
+      channels: channelsFor(initialKind),
     },
     // The same schema the API validates with. Fields that belong to other kinds are stripped.
     resolver: zodResolver(createAlertInputSchema) as unknown as Resolver<
@@ -160,8 +165,8 @@ function NewAlertForm({
   const channels = useWatch({ control, name: 'channels' });
   const errorFor = (name: string) => (errors as ErrorMap)[name]?.message;
 
-  const applyUrgency = (next: Urgency) => {
-    setValue('urgency', next);
+  const applyKind = (next: AlertKind) => {
+    setValue('urgency', defaultUrgency(next, Number(getValues('thresholdPct'))));
     setValue('channels', channelsFor(next));
   };
   const toggleChannel = (channel: DeliveryChannel, on: boolean) => {
@@ -212,8 +217,7 @@ function NewAlertForm({
                 type="radio"
                 value={k.kind}
                 {...register('kind', {
-                  onChange: (e: { target: { value: AlertKind } }) =>
-                    applyUrgency(defaultUrgency(e.target.value, Number(getValues('thresholdPct')))),
+                  onChange: (e: { target: { value: AlertKind } }) => applyKind(e.target.value),
                 })}
                 className="mt-0.5 accent-brand"
               />
@@ -277,7 +281,7 @@ function NewAlertForm({
               {...p}
               {...register('thresholdPct', {
                 onChange: (e: { target: { value: string } }) =>
-                  applyUrgency(defaultUrgency('loss-limit', Number(e.target.value))),
+                  setValue('urgency', defaultUrgency('loss-limit', Number(e.target.value))),
               })}
             >
               <option value="50">Half (50%)</option>
@@ -341,10 +345,7 @@ function NewAlertForm({
                 <input
                   type="radio"
                   value={u}
-                  {...register('urgency', {
-                    onChange: (e: { target: { value: Urgency } }) =>
-                      setValue('channels', channelsFor(e.target.value)),
-                  })}
+                  {...register('urgency')}
                   className="mt-0.5 accent-brand"
                 />
                 <span className="min-w-0">

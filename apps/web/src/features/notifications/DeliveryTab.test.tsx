@@ -20,22 +20,24 @@ async function signedIn(
 }
 
 describe('DeliveryTab', () => {
-  it('saves a routing change and keeps the app on for every urgency', async () => {
+  it('saves a routing change for one alert type and keeps the app on', async () => {
     const user = userEvent.setup();
     const { api } = await signedIn(<DeliveryTab onOpenTab={vi.fn()} />);
-    const critical = await screen.findByRole('group', {
-      name: 'Channels for critical notifications',
+    const sources = await screen.findByRole('group', {
+      name: 'Channels for data source problems',
     });
-    expect(within(critical).getByRole('button', { name: /In the app/ })).toBeDisabled();
+    expect(within(sources).getByRole('button', { name: /In the app/ })).toBeDisabled();
 
-    await user.click(within(critical).getByRole('button', { name: /WhatsApp/ }));
+    await user.click(within(sources).getByRole('button', { name: /WhatsApp/ }));
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     // The form restarts from the saved settings, so the save bar goes away.
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull());
     const saved = await api.notifications.preferences();
-    expect(saved.routing.critical).toContain('in-app');
-    expect(saved.routing.critical).not.toContain('whatsapp');
+    expect(saved.routing['source-health']).toContain('in-app');
+    expect(saved.routing['source-health']).not.toContain('whatsapp');
+    // Other alert types keep their own choices.
+    expect(saved.routing['loss-limit']).toContain('whatsapp');
   });
 
   it('shows channels the firm turned off as unavailable', async () => {
@@ -43,10 +45,8 @@ describe('DeliveryTab', () => {
       email: 'sam.okafor@demo.alchmai.com',
       tenantId: 'meridian',
     });
-    const critical = await screen.findByRole('group', {
-      name: 'Channels for critical notifications',
-    });
-    expect(within(critical).getByRole('button', { name: /WhatsApp/ })).toBeDisabled();
+    const meetings = await screen.findByRole('group', { name: 'Channels for meeting reminders' });
+    expect(within(meetings).getByRole('button', { name: /WhatsApp/ })).toBeDisabled();
     expect(screen.getByRole('radio', { name: /Standard/ })).toBeDisabled();
   });
 });

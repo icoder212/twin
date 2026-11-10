@@ -1,14 +1,16 @@
 import {
-  formatTime,
+  formatRelative,
   GoogleCalendarError,
   listGoogleEvents,
+  TOPIC_ROUTING,
   type CalendarEvent,
 } from '@twindesk/core';
 import type { Config } from './config';
 import { seal, unseal } from './crypto';
 import { GoogleAuthError, refreshAccessToken } from './google';
+import { localTime, notify } from './notify';
 import type { GoogleLink, Store } from './store';
-import { reminderMessage, sendWhatsApp } from './whatsapp';
+import { templateText } from './whatsapp';
 
 /** Refresh access a minute early, so a run never uses a token that expires mid-request. */
 const ACCESS_MARGIN_MS = 60_000;
@@ -98,11 +100,27 @@ export async function runReminders(deps: ReminderDeps): Promise<RunOutcome> {
   let firstError: string | undefined;
   for (const { key, event } of due) {
     if (!(await store.claimReminder(key, now))) continue;
+    const time = localTime(config, event.start);
+    const where = event.location ? `, ${event.location}` : event.joinUrl ? ', video call' : '';
     try {
-      const message = reminderMessage(config, event.title, formatTime(event.start, loc));
-      await store.markSent(key, await sendWhatsApp(config, message, fetch));
+      // Goes to the app and to the channels chosen for meeting reminders. A channel that fails
+      // is recorded on the notification rather than retried, so nothing arrives twice.
+      const recorded = await notify(deps, {
+        topic: 'calendar',
+        urgency: TOPIC_ROUTING.calendar.urgency,
+        title: `${time}: ${templateText(event.title, 100)}`,
+        body: `Starts ${formatRelative(event.start, loc, now)}${where}. From your Google Calendar.`,
+        href: '/',
+        whatsapp: { subject: event.title, at: time },
+      });
       sent += 1;
+      const problem = recorded.deliveries.find((d) => d.status === 'failed');
+      if (problem) {
+        failed += 1;
+        firstError ??= `${problem.channel}: ${problem.note ?? 'failed'}`;
+      }
     } catch (error) {
+      // Nothing was recorded, so give the claim back and try again on the next run.
       await store.releaseReminder(key);
       failed += 1;
       firstError ??= error instanceof Error ? error.message : String(error);

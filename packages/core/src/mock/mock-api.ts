@@ -28,9 +28,8 @@ import {
   type AuditEvent,
   type AuditQuery,
   type ConnectedSource,
-  type Notification,
 } from '../domain/operations';
-import { CHANNEL_LABELS, type DeliveryChannel } from '../domain/notifications';
+import { CHANNEL_LABELS, TOPIC_ROUTING, type DeliveryChannel } from '../domain/notifications';
 import type { TenantConfig } from '../domain/tenant';
 import type { Suggestion, TwinStreamEvent } from '../domain/twin';
 import { formatRelative, formatTime } from '../format/format';
@@ -193,16 +192,6 @@ const CALENDAR_SUGGESTION: Suggestion = {
   kind: 'ask',
   hint: '“What’s on my calendar today?”, from your Google Calendar',
 };
-
-/** Short stable hash (FNV-1a), so a reminder id stays the same across polls. */
-function shortHash(text: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i += 1) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(36);
-}
 
 /**
  * In-memory implementation of the full API contract, with the behaviours the real backend must
@@ -390,8 +379,11 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
     return week;
   }
 
-  /** Adds one in-app reminder for each meeting starting in the next 10 minutes. */
-  async function addMeetingReminders(session: Session, list: Notification[]): Promise<boolean> {
+  /**
+   * Sends one reminder for each meeting starting in the next 10 minutes, through the same rules
+   * as every other alert: it lands in the app and on the channels chosen for meeting reminders.
+   */
+  async function addMeetingReminders(session: Session): Promise<boolean> {
     if (!calendarFeed || calendarFeed.connection() !== 'connected') return false;
     let today: CalendarUpcoming;
     try {
@@ -399,25 +391,25 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
     } catch {
       return false;
     }
+    const d = data(session);
     const loc = { ...tenant.locale, timezone: session.user.timezone || tenant.locale.timezone };
     const t = now().getTime();
     let added = false;
     for (const e of today.events) {
       const startsIn = Date.parse(e.start) - t;
       if (e.allDay || startsIn <= 0 || startsIn > REMINDER_MINUTES * 60_000) continue;
-      const id = `nt_cal_${shortHash(`${e.id}|${e.start}`)}`;
-      if (list.some((n) => n.id === id)) continue;
+      const key = `${e.id}|${e.start}`;
+      if (d.calendarReminders.includes(key)) continue;
+      d.calendarReminders = [key, ...d.calendarReminders].slice(0, 200);
       const where = e.location ? `, ${e.location}` : e.joinUrl ? ', video call' : '';
-      list.unshift({
-        id,
+      notify.dispatch(session, {
+        topic: 'calendar',
+        urgency: TOPIC_ROUTING.calendar.urgency,
         title: `${formatTime(e.start, loc)}: ${e.title}`.slice(0, 120),
         body: `Starts ${formatRelative(e.start, loc, t)}${where}. From your Google Calendar.`.slice(
           0,
           400,
         ),
-        severity: 'info',
-        at: now().toISOString(),
-        read: false,
         href: '/',
       });
       added = true;
@@ -987,10 +979,9 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
       async notifications() {
         const session = requireSession();
         await latency(60, 80);
-        const list = data(session).notifications;
-        if (await addMeetingReminders(session, list)) persist(session);
+        await addMeetingReminders(session);
         // A new array, so a client cache notices an added reminder like a server response.
-        return [...list];
+        return [...data(session).notifications];
       },
       async markRead(ids) {
         const session = requireSession();

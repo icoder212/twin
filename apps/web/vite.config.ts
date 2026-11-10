@@ -22,6 +22,9 @@ function cspMetaTag(connectSrc: string[]): Plugin {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
+  // Optional, not VITE_ (so never in the bundle): where the dev server sends /v1, e.g. the
+  // deployed Desk Twin server, so local runs can sign in to the real account.
+  const apiProxyTarget = loadEnv(mode, process.cwd(), '').API_PROXY_TARGET;
   const connectSrc = env.VITE_API_BASE_URL ? [new URL(env.VITE_API_BASE_URL).origin] : [];
   // Demo builds with a Google client read the calendar from the browser; production never does.
   if (env.VITE_GOOGLE_CLIENT_ID && env.VITE_API_MODE !== 'http') {
@@ -43,6 +46,9 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       // HMR needs inline scripts in development, so the CSP is only enforced on builds.
       headers: securityHeaders({ csp: false }),
+      proxy: apiProxyTarget
+        ? { '/v1': { target: apiProxyTarget, changeOrigin: true, secure: true } }
+        : undefined,
     },
     preview: {
       port: 4173,

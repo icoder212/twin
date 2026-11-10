@@ -10,6 +10,7 @@ import {
 } from '../mock/notify-fixtures';
 import { DEMO_MFA_CODE, DEMO_PASSWORD, DEMO_USERS } from '../mock/users';
 import {
+  chosenChannels,
   isQuietNow,
   planDeliveries,
   planEscalation,
@@ -39,16 +40,32 @@ const byChannel = (plan: ReturnType<typeof planDeliveries>) =>
   Object.fromEntries(plan.map((p) => [p.channel, p]));
 
 describe('delivery planning', () => {
-  it('always includes the app and follows the routing for each urgency', () => {
-    const plan = planDeliveries('important', ctx());
+  it('always includes the app and follows the routing for each alert type', () => {
+    const plan = planDeliveries({ topic: 'session-rule', urgency: 'important' }, ctx());
     expect(plan.map((p) => p.channel)).toEqual(['in-app', 'push', 'email']);
     expect(plan.every((p) => p.status === 'send')).toBe(true);
+    const meeting = planDeliveries({ topic: 'calendar', urgency: 'important' }, ctx());
+    expect(meeting.map((p) => p.channel)).toEqual(['in-app', 'push']);
+  });
+
+  it('sends unrouted types to the app only, and tests to every chosen channel', () => {
+    const base = ctx();
+    expect(planDeliveries({ topic: 'test', urgency: 'info' }, base).map((p) => p.channel)).toEqual([
+      'in-app',
+    ]);
+    expect(chosenChannels(base.preferences)).toEqual([
+      'in-app',
+      'push',
+      'email',
+      'whatsapp',
+      'teams',
+    ]);
   });
 
   it('skips channels the firm turned off and channels without a verified contact', () => {
     const plan = byChannel(
       planDeliveries(
-        'critical',
+        { topic: 'source-health', urgency: 'critical' },
         ctx({ policy: { ...policy, allowedChannels: ['in-app', 'push', 'email', 'teams'] } }),
       ),
     );
@@ -60,11 +77,16 @@ describe('delivery planning', () => {
   it('holds messages in quiet hours but lets critical alerts through', () => {
     const night = ctx({ localMinutes: 23 * 60 });
     expect(isQuietNow(night)).toBe(true);
-    expect(byChannel(planDeliveries('important', night)).email).toMatchObject({
+    expect(
+      byChannel(planDeliveries({ topic: 'loss-limit', urgency: 'important' }, night)).email,
+    ).toMatchObject({
       status: 'held',
       note: 'Quiet hours: held for your 17:30 summary',
     });
-    expect(byChannel(planDeliveries('critical', night)).whatsapp?.status).toBe('send');
+    expect(
+      byChannel(planDeliveries({ topic: 'loss-limit', urgency: 'critical' }, night)).whatsapp
+        ?.status,
+    ).toBe('send');
   });
 
   it('wraps custom quiet hours past midnight and treats weekends as quiet', () => {
@@ -83,11 +105,17 @@ describe('delivery planning', () => {
   });
 
   it('bundles info messages into the daily summary, except scheduled briefings', () => {
-    expect(byChannel(planDeliveries('info', ctx())).email?.status).toBe('held');
-    const briefing = planDeliveries('info', ctx({ localMinutes: 23 * 60 }), {
-      channels: ['email', 'whatsapp'],
-      scheduled: true,
-    });
+    expect(
+      byChannel(planDeliveries({ topic: 'approval', urgency: 'info' }, ctx())).email?.status,
+    ).toBe('held');
+    const briefing = planDeliveries(
+      { topic: 'briefing', urgency: 'info' },
+      ctx({ localMinutes: 23 * 60 }),
+      {
+        channels: ['email', 'whatsapp'],
+        scheduled: true,
+      },
+    );
     expect(briefing.map((p) => [p.channel, p.status])).toEqual([
       ['in-app', 'send'],
       ['email', 'send'],
@@ -259,7 +287,7 @@ describe('mock notifications API', () => {
       .catch((e: unknown) => e)) as ApiError;
     expect(blocked.code).toBe('forbidden');
     const prefs = await api.notifications.preferences();
-    expect(prefs.routing.critical).not.toContain('whatsapp');
+    expect(prefs.routing['source-health']).not.toContain('whatsapp');
     const rejected = (await api.notifications
       .updatePreferences({ ...prefs, privacy: 'standard' })
       .catch((e: unknown) => e)) as ApiError;

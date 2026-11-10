@@ -200,7 +200,7 @@ describe('mock API with a live calendar', () => {
     expect((await google())?.status).toBe('not-connected');
   });
 
-  it('adds one in-app reminder for a meeting starting within 10 minutes', async () => {
+  it('reminds once about a meeting starting within 10 minutes, through the routing', async () => {
     feed.state = 'connected';
     feed.events = [
       {
@@ -222,12 +222,15 @@ describe('mock API with a live calendar', () => {
         guests: 0,
       },
     ];
-    const first = await api.alerts.notifications();
-    const second = await api.alerts.notifications();
-    const reminders = second.filter((n) => n.id.startsWith('nt_cal_'));
-    expect(reminders).toHaveLength(1);
-    expect(reminders[0]?.title).toContain('Coach call');
-    expect(first.filter((n) => n.id.startsWith('nt_cal_'))).toHaveLength(1);
+    await api.alerts.notifications();
+    const bell = await api.alerts.notifications();
+    expect(bell.filter((n) => n.title.includes('Coach call'))).toHaveLength(1);
+    expect(bell.some((n) => n.title.includes('Review'))).toBe(false);
+
+    const [logged] = await api.notifications.events();
+    expect(logged).toMatchObject({ topic: 'calendar', urgency: 'important' });
+    // Meeting reminders go to the app and phone push in the demo's default routing.
+    expect(logged?.deliveries.map((d) => d.channel)).toEqual(['in-app', 'push']);
   });
 
   it('answers calendar questions from the live calendar, with a citation', async () => {

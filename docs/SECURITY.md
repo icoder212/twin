@@ -110,6 +110,15 @@ These exist only in mock builds and are removed from builds with `VITE_API_MODE=
   and attendees' names and addresses are never fetched. Production uses the authorisation-code
   flow on the server, with the refresh token in the vault, and the browser never calls Google.
 
+## The owner's real account (demo builds)
+
+- The server in `apps/api` accepts one Google account (`OWNER_GOOGLE_ACCOUNT`). Its calendar
+  refresh token is sealed with AES-GCM before it is stored. Sign-in uses the authorisation-code
+  flow with PKCE, a sealed state and a browser-bound nonce cookie.
+- The app reaches the server at `/v1` on its own domain, so sessions are first-party HttpOnly
+  `__Host-` cookies with a double-submit CSRF token. A lapsed server session never ends the demo
+  session; leaving the demo also signs out of the real account.
+
 ## Before production
 
 Independent penetration test; dependency and container scanning in CI; a DPIA under UK GDPR;

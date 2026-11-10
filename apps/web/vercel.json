@@ -4,7 +4,13 @@
   "installCommand": "cd ../.. && npm ci --ignore-scripts --no-audit --no-fund",
   "buildCommand": "cd ../.. && npm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [
+    {
+      "source": "/v1/:path*",
+      "destination": "https://desk-twin-api.withered-disk-7504.workers.dev/v1/:path*"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

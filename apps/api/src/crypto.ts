@@ -30,6 +30,11 @@ export function randomToken(length = 32): string {
   return toBase64Url(bytes(length));
 }
 
+export async function sha256Hex(text: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 /** PKCE S256 code challenge for a verifier. */
 export async function pkceChallenge(verifier: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(verifier));
