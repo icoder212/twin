@@ -15,6 +15,8 @@ export const qk = {
   sources: ['sources'] as const,
   calendar: (days: number) => ['calendar', days] as const,
   calendarRoot: ['calendar'] as const,
+  economic: ['economic'] as const,
+  news: ['news'] as const,
   notifyRoot: ['notify'] as const,
   notificationPrefs: ['notify', 'preferences'] as const,
   contacts: ['notify', 'contacts'] as const,

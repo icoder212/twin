@@ -17,7 +17,7 @@ import type { Config } from './config';
 import { sendEmail } from './email';
 import { loadPreferences, serverContacts, serverPolicy } from './settings';
 import type { Store } from './store';
-import { reminderMessage, sendWhatsApp } from './whatsapp';
+import { sendWhatsApp, templateMessage, type WhatsAppTemplate } from './whatsapp';
 
 export interface NotifyDeps {
   config: Config;
@@ -34,8 +34,8 @@ export interface NotifyInput {
   href?: string;
   /** Explicit channels (a test uses every chosen one) instead of the type's routing. */
   channels?: DeliveryChannel[];
-  /** Fills the approved WhatsApp template. Types without one are skipped on WhatsApp. */
-  whatsapp?: { subject: string; at: string };
+  /** The approved WhatsApp template to use. Alerts without one are skipped on WhatsApp. */
+  whatsapp?: WhatsAppTemplate;
 }
 
 const PRODUCT = 'Desk Twin';
@@ -94,7 +94,7 @@ export async function notify(deps: NotifyDeps, input: NotifyInput): Promise<Noti
         });
       } else {
         try {
-          const message = reminderMessage(config, input.whatsapp.subject, input.whatsapp.at);
+          const message = templateMessage(config, input.whatsapp);
           outbound.push({ id: await sendWhatsApp(config, message, fetch), channel: 'whatsapp' });
         } catch (error) {
           Object.assign(delivery, { status: 'failed', note: failure(error) });

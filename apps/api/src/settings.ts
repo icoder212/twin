@@ -19,6 +19,8 @@ export const DEFAULT_PREFERENCES: NotificationPreferences = {
     calendar: ['in-app', 'whatsapp'],
     price: ['in-app', 'whatsapp'],
     release: ['in-app', 'whatsapp'],
+    // Headlines can be many a day; WhatsApp is opt-in, as each message costs.
+    news: ['in-app'],
     'loss-limit': ['in-app', 'email', 'whatsapp'],
     'session-rule': ['in-app', 'email'],
     'source-health': ['in-app', 'email', 'whatsapp'],

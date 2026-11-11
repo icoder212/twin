@@ -4,6 +4,7 @@ import type { User } from '../domain/auth';
  * Demo identities for client presentations. These exist only in the mock adapter, which the
  * build excludes unless demo mode is switched on. Real credentials are verified by the server.
  */
+/** Accepted only where no password hash is configured: tests and local tools, never the site. */
 export const DEMO_PASSWORD = 'DeskTwin!2026';
 export const DEMO_MFA_CODE = '246810';
 

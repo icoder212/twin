@@ -19,6 +19,12 @@ const envSchema = z
       .string()
       .regex(/^[a-z0-9-]+$/)
       .default('alchmai'),
+    /** SHA-256 (hex) of the demo password, to change it without a code change. */
+    VITE_DEMO_PASSWORD_SHA256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/i)
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
     /** OAuth client for the demo's browser-held Google Calendar access. Public by design. */
     VITE_GOOGLE_CLIENT_ID: z
       .string()
@@ -37,6 +43,12 @@ const envSchema = z
 
 const parsed = envSchema.parse(import.meta.env);
 
+/**
+ * The demo password, as a one-way hash: the code is public, so the password itself is kept out
+ * of it and given to people directly. Changed on 11 November 2026.
+ */
+const DEMO_PASSWORD_SHA256 = 'a916744fae43a3c352e8a7c0fe25a5d90e766a62b5c7bd16a407b6ad3252c067';
+
 export const env = {
   apiMode: parsed.VITE_API_MODE,
   apiBaseUrl: parsed.VITE_API_BASE_URL,
@@ -45,5 +57,6 @@ export const env = {
   defaultTenant: parsed.VITE_DEFAULT_TENANT,
   /** Set only in demo builds: production reads calendars on the server, never in the browser. */
   googleClientId: parsed.VITE_API_MODE === 'mock' ? parsed.VITE_GOOGLE_CLIENT_ID : undefined,
+  demoPasswordSha256: parsed.VITE_DEMO_PASSWORD_SHA256 ?? DEMO_PASSWORD_SHA256,
   isDev: import.meta.env.DEV,
 } as const;

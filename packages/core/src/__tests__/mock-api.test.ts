@@ -59,6 +59,24 @@ describe('mock API', () => {
     expect((error as ApiError).code).toBe('locked');
   });
 
+  it('accepts only the password whose hash is configured', async () => {
+    const digest = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode('Test-Pass-1234'),
+    );
+    const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const guarded = createMockApi({ tenant, store, speed: 0, demoPasswordSha256: hash });
+    const email = 'alex.morgan@demo.alchmai.com';
+    await expect(guarded.auth.login({ email, password: DEMO_PASSWORD })).rejects.toMatchObject({
+      code: 'unauthenticated',
+    });
+    expect(await guarded.auth.login({ email, password: 'Test-Pass-1234' })).toMatchObject({
+      status: 'mfa-required',
+    });
+    // Demo single sign-on asks for no password, so it is refused too.
+    await expect(guarded.auth.startSso('microsoft')).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
   it('rejects calls without a session', async () => {
     await expect(api.alerts.list()).rejects.toMatchObject({ code: 'unauthenticated' });
   });

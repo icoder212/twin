@@ -153,10 +153,8 @@ function PasswordForm({ onChallenge }: { onChallenge: (c: Challenge) => void }) 
   // Demo accounts fill the form through this event, so the fields stay controlled by the form.
   useEffect(() => {
     const onFill = (event: Event) => {
-      const { email, password } = (event as CustomEvent<{ email: string; password: string }>)
-        .detail;
+      const { email } = (event as CustomEvent<{ email: string }>).detail;
       form.setValue('email', email, { shouldValidate: false });
-      form.setValue('password', password, { shouldValidate: false });
       form.setFocus('password');
     };
     window.addEventListener('twindesk:demo-fill', onFill);
@@ -257,7 +255,9 @@ function PasswordForm({ onChallenge }: { onChallenge: (c: Challenge) => void }) 
         </Button>
       </form>
 
-      {tenant.security.ssoProviders.length ? (
+      {/* The demo's single sign-on would let anyone in, so password-protected demos hide it. */}
+      {tenant.security.ssoProviders.length &&
+      !(import.meta.env.VITE_API_MODE !== 'http' && env.demoPasswordSha256) ? (
         <div className="space-y-3">
           <div className="flex items-center gap-3 text-[11px] tracking-[0.14em] text-fg-subtle uppercase">
             <span className="h-px flex-1 bg-line" /> or <span className="h-px flex-1 bg-line" />
@@ -370,16 +370,13 @@ function DemoAccounts() {
       deskType: keyof typeof DESK_LABELS;
     }>
   >([]);
-  const [password, setPassword] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     // Static guard: builds for the real API contain no demo accounts at all.
     if (import.meta.env.VITE_API_MODE !== 'http') {
-      void import('@twindesk/core/mock').then(({ DEMO_USERS, DEMO_PASSWORD }) => {
-        if (cancelled) return;
-        setAccounts(DEMO_USERS);
-        setPassword(DEMO_PASSWORD);
+      void import('@twindesk/core/mock').then(({ DEMO_USERS }) => {
+        if (!cancelled) setAccounts(DEMO_USERS);
       });
     }
     return () => {
@@ -409,7 +406,7 @@ function DemoAccounts() {
               type="button"
               onClick={() =>
                 window.dispatchEvent(
-                  new CustomEvent('twindesk:demo-fill', { detail: { email: a.email, password } }),
+                  new CustomEvent('twindesk:demo-fill', { detail: { email: a.email } }),
                 )
               }
               className="flex w-full items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-line hover:bg-surface-2"
@@ -430,8 +427,8 @@ function DemoAccounts() {
         ))}
       </ul>
       <p className="mt-3 text-[11.5px] text-fg-subtle">
-        Picking an account fills the form. The authenticator code for every demo account is shown on
-        the next step.
+        Picking an account fills in its email. The password is shared with you directly; the
+        authenticator code is shown on the next step.
       </p>
     </section>
   );

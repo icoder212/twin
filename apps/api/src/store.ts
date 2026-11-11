@@ -1,4 +1,9 @@
-import { notificationEventSchema, type NotificationEvent } from '@twindesk/core';
+import {
+  usReleaseSchema,
+  notificationEventSchema,
+  type UsRelease,
+  type NotificationEvent,
+} from '@twindesk/core';
 import type { D1Database } from './worker-types';
 
 export interface GoogleLink {
@@ -12,6 +17,18 @@ export interface GoogleLink {
 export interface StoredNotification {
   event: NotificationEvent;
   read: boolean;
+}
+
+/** One scheduled US release and what has been sent for it. */
+export interface ReleaseRow {
+  key: string;
+  event: UsRelease;
+  releaseDate: string;
+  at: number;
+  remindedAt: number | null;
+  resultAt: number | null;
+  missedAt: number | null;
+  details: string | null;
 }
 
 /** Persistence the reminder run needs. D1 in production; an in-memory version in tests. */
@@ -49,6 +66,20 @@ export interface Store {
   /** Links a provider's message id to a notification, for delivery receipts. */
   recordOutbound(messageId: string, notificationId: string, channel: string): Promise<void>;
   notificationForMessage(messageId: string): Promise<string | null>;
+
+  /** Adds releases, or moves one whose date changed before anything was sent for it. */
+  upsertReleases(
+    rows: Array<Pick<ReleaseRow, 'key' | 'event' | 'releaseDate' | 'at'>>,
+  ): Promise<void>;
+  /** Releases due between two times, earliest first. */
+  listReleases(from: number, to: number): Promise<ReleaseRow[]>;
+  /** True only the first time, so each release gets one reminder. */
+  claimReleaseReminder(key: string, at: number): Promise<boolean>;
+  unclaimReleaseReminder(key: string): Promise<void>;
+  /** True only the first time, so the figures are posted once. */
+  claimReleaseResult(key: string, at: number, details: string): Promise<boolean>;
+  unclaimReleaseResult(key: string): Promise<void>;
+  markReleaseMissed(key: string, at: number): Promise<void>;
 }
 
 interface NotificationRow {
@@ -64,6 +95,32 @@ function toStored(row: NotificationRow): StoredNotification | null {
   } catch {
     return null;
   }
+}
+
+interface ReleaseDbRow {
+  key: string;
+  event: string;
+  release_date: string;
+  at: number;
+  reminded_at: number | null;
+  result_at: number | null;
+  missed_at: number | null;
+  details: string | null;
+}
+
+function toRelease(row: ReleaseDbRow): ReleaseRow | null {
+  const event = usReleaseSchema.safeParse(row.event);
+  if (!event.success) return null;
+  return {
+    key: row.key,
+    event: event.data,
+    releaseDate: row.release_date,
+    at: row.at,
+    remindedAt: row.reminded_at,
+    resultAt: row.result_at,
+    missedAt: row.missed_at,
+    details: row.details,
+  };
 }
 
 interface LinkRow {
@@ -132,6 +189,7 @@ export function d1Store(db: D1Database): Store {
     async pruneReminders(before) {
       await db.prepare('DELETE FROM reminders WHERE claimed_at < ?').bind(before).run();
       await db.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(before).run();
+      await db.prepare('DELETE FROM economic_releases WHERE at < ?').bind(before).run();
     },
     async createSession(idHash, email, csrf, at, expiresAt) {
       await db
@@ -207,6 +265,64 @@ export function d1Store(db: D1Database): Store {
         .bind(messageId)
         .first<{ notification_id: string }>();
       return row?.notification_id ?? null;
+    },
+    async upsertReleases(rows) {
+      for (const row of rows) {
+        await db
+          .prepare(
+            `INSERT INTO economic_releases (key, event, release_date, at) VALUES (?, ?, ?, ?)
+             ON CONFLICT (key) DO UPDATE SET at = excluded.at
+             WHERE reminded_at IS NULL AND result_at IS NULL`,
+          )
+          .bind(row.key, row.event, row.releaseDate, row.at)
+          .run();
+      }
+    },
+    async listReleases(from, to) {
+      const { results } = await db
+        .prepare(
+          `SELECT key, event, release_date, at, reminded_at, result_at, missed_at, details
+           FROM economic_releases WHERE at >= ? AND at <= ? ORDER BY at LIMIT 200`,
+        )
+        .bind(from, to)
+        .all<ReleaseDbRow>();
+      return results.map(toRelease).filter((r): r is ReleaseRow => r !== null);
+    },
+    async claimReleaseReminder(key, at) {
+      const result = await db
+        .prepare(
+          'UPDATE economic_releases SET reminded_at = ? WHERE key = ? AND reminded_at IS NULL',
+        )
+        .bind(at, key)
+        .run();
+      return result.meta.changes === 1;
+    },
+    async unclaimReleaseReminder(key) {
+      await db
+        .prepare('UPDATE economic_releases SET reminded_at = NULL WHERE key = ?')
+        .bind(key)
+        .run();
+    },
+    async claimReleaseResult(key, at, details) {
+      const result = await db
+        .prepare(
+          'UPDATE economic_releases SET result_at = ?, details = ? WHERE key = ? AND result_at IS NULL',
+        )
+        .bind(at, details, key)
+        .run();
+      return result.meta.changes === 1;
+    },
+    async unclaimReleaseResult(key) {
+      await db
+        .prepare('UPDATE economic_releases SET result_at = NULL, details = NULL WHERE key = ?')
+        .bind(key)
+        .run();
+    },
+    async markReleaseMissed(key, at) {
+      await db
+        .prepare('UPDATE economic_releases SET missed_at = ? WHERE key = ? AND missed_at IS NULL')
+        .bind(at, key)
+        .run();
     },
   };
 }

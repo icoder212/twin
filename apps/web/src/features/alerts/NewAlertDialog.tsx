@@ -58,6 +58,7 @@ const FALLBACK_ROUTING: NotificationPreferences['routing'] = {
   calendar: ['in-app'],
   price: ['in-app', 'push'],
   release: ['in-app', 'push'],
+  news: ['in-app'],
   'loss-limit': ['in-app', 'push', 'email'],
   'session-rule': ['in-app', 'push'],
   'source-health': ['in-app', 'push', 'email'],

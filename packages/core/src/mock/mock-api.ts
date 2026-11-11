@@ -62,6 +62,16 @@ export interface MockApiOptions {
   now?: () => Date;
   /** A live calendar for the Google source. The browser holds the access; the mock only reads. */
   calendar?: CalendarFeed;
+  /**
+   * SHA-256 (hex) of the demo password. Deployed demos set it, so the password itself is in
+   * neither the code nor the bundle. Without it, DEMO_PASSWORD is accepted (tests, local tools).
+   */
+  demoPasswordSha256?: string;
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 const SESSION_KEY = 'twindesk.mock.session';
@@ -440,7 +450,10 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
           });
         }
         const base = DEMO_USERS.find((u) => u.email === email);
-        if (!base || password !== DEMO_PASSWORD) {
+        const passwordOk = options.demoPasswordSha256
+          ? (await sha256Hex(password)) === options.demoPasswordSha256.toLowerCase()
+          : password === DEMO_PASSWORD;
+        if (!base || !passwordOk) {
           const count = lock.count + 1;
           const locked = count >= tenant.security.maxLoginAttempts;
           store.set(
@@ -522,6 +535,14 @@ export function createMockApi(options: MockApiOptions): TwinDeskApi & { resetDem
 
       async startSso(provider) {
         await latency(900, 500);
+        // Demo single sign-on asks for nothing, so a password-protected demo turns it off.
+        if (options.demoPasswordSha256) {
+          throw new ApiError(
+            'forbidden',
+            'Single sign-on is off in this demo. Sign in with the email and password you were given.',
+            { status: 403 },
+          );
+        }
         const base = provider === 'saml' ? DEMO_USERS[2] : DEMO_USERS[0];
         if (!base) throw new ApiError('server', 'Single sign-on is not available.');
         const user = userFor(base);

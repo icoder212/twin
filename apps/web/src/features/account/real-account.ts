@@ -3,10 +3,13 @@ import {
   accountStatusSchema,
   ApiError,
   createHttpApi,
+  createHttpClient,
   isApiError,
   type AccountStatus,
   type AlertsApi,
+  type HttpClient,
   type NotificationsApi,
+  type RequestOptions,
   type TwinDeskApi,
 } from '@twindesk/core';
 import { registerSessionReset } from '@/features/auth/session-store';
@@ -93,9 +96,9 @@ function realApi(): TwinDeskApi {
  * An ended Google session must not look like the demo session ending, which would sign the
  * user out of the whole app, so it becomes a plain error and the screens fall back to the demo.
  */
-async function guarded<T>(call: (api: TwinDeskApi) => Promise<T>): Promise<T> {
+async function guarded<T>(call: () => Promise<T>): Promise<T> {
   try {
-    return await call(realApi());
+    return await call();
   } catch (error) {
     if (isApiError(error) && error.code === 'unauthenticated') {
       useRealAccount.setState({ status: { signedIn: false } });
@@ -109,52 +112,66 @@ async function guarded<T>(call: (api: TwinDeskApi) => Promise<T>): Promise<T> {
   }
 }
 
+let client: HttpClient | null = null;
+
+/** A call for screens that exist only with the real account, such as instructions. */
+export function realRequest<T>(path: string, opts: RequestOptions<T>): Promise<T> {
+  client ??= createHttpClient({
+    baseUrl: window.location.origin,
+    getCsrfToken: () => readCookie('twindesk_csrf'),
+  });
+  const http = client;
+  return guarded(() => http.request(path, opts));
+}
+
 /** The demo API, with notifications served by the real server while the owner is signed in. */
 export function withRealNotifications<T extends TwinDeskApi>(mock: T): T {
   const notifications: NotificationsApi = {
     preferences: () =>
-      isReal() ? guarded((a) => a.notifications.preferences()) : mock.notifications.preferences(),
+      isReal()
+        ? guarded(() => realApi().notifications.preferences())
+        : mock.notifications.preferences(),
     updatePreferences: (input) =>
       isReal()
-        ? guarded((a) => a.notifications.updatePreferences(input))
+        ? guarded(() => realApi().notifications.updatePreferences(input))
         : mock.notifications.updatePreferences(input),
     contacts: () =>
-      isReal() ? guarded((a) => a.notifications.contacts()) : mock.notifications.contacts(),
+      isReal() ? guarded(() => realApi().notifications.contacts()) : mock.notifications.contacts(),
     startVerification: (input) =>
       isReal()
-        ? guarded((a) => a.notifications.startVerification(input))
+        ? guarded(() => realApi().notifications.startVerification(input))
         : mock.notifications.startVerification(input),
     confirmVerification: (input) =>
       isReal()
-        ? guarded((a) => a.notifications.confirmVerification(input))
+        ? guarded(() => realApi().notifications.confirmVerification(input))
         : mock.notifications.confirmVerification(input),
     removeContact: (channel) =>
       isReal()
-        ? guarded((a) => a.notifications.removeContact(channel))
+        ? guarded(() => realApi().notifications.removeContact(channel))
         : mock.notifications.removeContact(channel),
     policy: () =>
-      isReal() ? guarded((a) => a.notifications.policy()) : mock.notifications.policy(),
+      isReal() ? guarded(() => realApi().notifications.policy()) : mock.notifications.policy(),
     updatePolicy: (input) =>
       isReal()
-        ? guarded((a) => a.notifications.updatePolicy(input))
+        ? guarded(() => realApi().notifications.updatePolicy(input))
         : mock.notifications.updatePolicy(input),
     events: () =>
-      isReal() ? guarded((a) => a.notifications.events()) : mock.notifications.events(),
+      isReal() ? guarded(() => realApi().notifications.events()) : mock.notifications.events(),
     acknowledge: (id) =>
       isReal()
-        ? guarded((a) => a.notifications.acknowledge(id))
+        ? guarded(() => realApi().notifications.acknowledge(id))
         : mock.notifications.acknowledge(id),
     sendTest: (urgency) =>
       isReal()
-        ? guarded((a) => a.notifications.sendTest(urgency))
+        ? guarded(() => realApi().notifications.sendTest(urgency))
         : mock.notifications.sendTest(urgency),
   };
   const alerts: AlertsApi = {
     ...mock.alerts,
     notifications: () =>
-      isReal() ? guarded((a) => a.alerts.notifications()) : mock.alerts.notifications(),
+      isReal() ? guarded(() => realApi().alerts.notifications()) : mock.alerts.notifications(),
     markRead: (ids) =>
-      isReal() ? guarded((a) => a.alerts.markRead(ids)) : mock.alerts.markRead(ids),
+      isReal() ? guarded(() => realApi().alerts.markRead(ids)) : mock.alerts.markRead(ids),
   };
   return { ...mock, notifications, alerts };
 }

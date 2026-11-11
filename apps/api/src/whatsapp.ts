@@ -16,23 +16,46 @@ export function templateText(value: string, max = 60): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+/** An approved template and the values for its placeholders, in order. */
+export interface WhatsAppTemplate {
+  name: string;
+  params: string[];
+}
+
 /** The approved utility template: "Reminder: {{1}} starts at {{2}}. Sent by Desk Twin." */
-export function reminderMessage(config: Config, title: string, time: string) {
+export function reminderTemplate(config: Config, title: string, time: string): WhatsAppTemplate {
+  return { name: config.WHATSAPP_TEMPLATE, params: [templateText(title), time] };
+}
+
+/**
+ * "Desk Twin update on {{1}}: {{2}}. Full details are in the app." Without one set up, updates
+ * reach the app and email only.
+ */
+export function updateTemplate(
+  config: Config,
+  subject: string,
+  details: string,
+): WhatsAppTemplate | undefined {
+  if (!config.WHATSAPP_UPDATE_TEMPLATE) return undefined;
+  return {
+    name: config.WHATSAPP_UPDATE_TEMPLATE,
+    params: [templateText(subject), templateText(details, 200)],
+  };
+}
+
+export function templateMessage(config: Config, template: WhatsAppTemplate) {
   return {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
     to: config.WHATSAPP_TO,
     type: 'template',
     template: {
-      name: config.WHATSAPP_TEMPLATE,
+      name: template.name,
       language: { code: config.WHATSAPP_TEMPLATE_LANGUAGE },
       components: [
         {
           type: 'body',
-          parameters: [
-            { type: 'text', text: templateText(title) },
-            { type: 'text', text: time },
-          ],
+          parameters: template.params.map((text) => ({ type: 'text', text })),
         },
       ],
     },
@@ -42,7 +65,7 @@ export function reminderMessage(config: Config, title: string, time: string) {
 /** Sends through the WhatsApp Cloud API and returns Meta's message id. */
 export async function sendWhatsApp(
   config: Config,
-  message: ReturnType<typeof reminderMessage>,
+  message: ReturnType<typeof templateMessage>,
   fetchFn: typeof fetch,
 ): Promise<string> {
   const url = `https://graph.facebook.com/${config.GRAPH_API_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;

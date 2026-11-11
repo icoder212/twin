@@ -10,7 +10,7 @@ import { seal, unseal } from './crypto';
 import { GoogleAuthError, refreshAccessToken } from './google';
 import { localTime, notify } from './notify';
 import type { GoogleLink, Store } from './store';
-import { templateText } from './whatsapp';
+import { reminderTemplate, templateText } from './whatsapp';
 
 /** Refresh access a minute early, so a run never uses a token that expires mid-request. */
 const ACCESS_MARGIN_MS = 60_000;
@@ -111,7 +111,7 @@ export async function runReminders(deps: ReminderDeps): Promise<RunOutcome> {
         title: `${time}: ${templateText(event.title, 100)}`,
         body: `Starts ${formatRelative(event.start, loc, now)}${where}. From your Google Calendar.`,
         href: '/',
-        whatsapp: { subject: event.title, at: time },
+        whatsapp: reminderTemplate(config, event.title, time),
       });
       sent += 1;
       const problem = recorded.deliveries.find((d) => d.status === 'failed');

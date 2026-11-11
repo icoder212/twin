@@ -22,6 +22,7 @@ export function seedNotificationPreferences(policy: NotificationPolicy): Notific
       calendar: allowed(['in-app', 'push']),
       price: allowed(['in-app', 'push']),
       release: allowed(['in-app', 'push']),
+      news: allowed(['in-app']),
       'loss-limit': allowed(['in-app', 'push', 'email', 'whatsapp']),
       'session-rule': allowed(['in-app', 'push', 'email']),
       'source-health': allowed(['in-app', 'push', 'email', 'whatsapp', 'teams']),

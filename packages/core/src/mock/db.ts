@@ -39,7 +39,7 @@ import { DEMO_USERS } from './users';
 
 export interface UserData {
   /** Bumped when the stored shape changes, so older demo data is reseeded. */
-  version: 3;
+  version: 4;
   deskType: DeskType;
   automations: Automation[];
   runs: Record<string, AutomationRun[]>;
@@ -123,7 +123,7 @@ export class MockDb {
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as UserData;
-        if (parsed.version === 3) data = parsed;
+        if (parsed.version === 4) data = parsed;
       } catch {
         // Corrupt demo state: reseed below.
       }
@@ -179,7 +179,7 @@ export class MockDb {
     const { automations, runs } = seedAutomations(user, now);
     const policy = this.policy();
     return {
-      version: 3,
+      version: 4,
       deskType: user.deskType,
       automations,
       runs,

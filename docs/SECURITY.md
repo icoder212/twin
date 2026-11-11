@@ -119,6 +119,15 @@ These exist only in mock builds and are removed from builds with `VITE_API_MODE=
   `__Host-` cookies with a double-submit CSRF token. A lapsed server session never ends the demo
   session; leaving the demo also signs out of the real account.
 
+- Instructions go to Claude from the server only; the key never reaches the browser. Claude's
+  answer is checked against a schema, its reply text is sanitised and must pass the advice
+  checks, and nothing is saved until the owner confirms. Messages sent later are written by the
+  server from published figures, not by Claude. Instructions are limited to 40 a day.
+- FRED, BLS, Alpaca and central bank responses are schema-checked or pattern-matched and
+  size-limited; feed links must be on the bank's own site, and headline links pass `safeUrl`
+  before the app shows them. Headlines go to Claude only as text to sort, and its answer can only
+  pick from the numbered list and the owner's own topics.
+
 ## Before production
 
 Independent penetration test; dependency and container scanning in CI; a DPIA under UK GDPR;

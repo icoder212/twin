@@ -10,6 +10,9 @@ export * from './domain/operations';
 export * from './domain/overview';
 export * from './domain/calendar';
 export * from './domain/account';
+export * from './domain/economic';
+export * from './domain/news';
+export * from './domain/instructions';
 
 // API contract and transport
 export * from './api/contracts';

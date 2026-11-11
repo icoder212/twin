@@ -4,7 +4,9 @@ import { handleApi } from './api';
 import { readConfig, type Config, type Env } from './config';
 import { timingSafeEqual } from './crypto';
 import { json, text } from './http';
+import { runEconomic } from './economic';
 import { log, logError } from './log';
+import { runNews } from './news';
 import { runReminders } from './reminders';
 import { beginGoogle, completeGoogle } from './signin';
 import { d1Store, type Store } from './store';
@@ -130,6 +132,33 @@ export default {
       if (new Date(now).getUTCMinutes() === 0) await store.pruneReminders(now - PRUNE_AFTER_MS);
     } catch (error) {
       logError('reminders', error);
+    }
+    try {
+      const outcome = await runEconomic({
+        config: readConfig(env),
+        store: d1Store(env.DB),
+        fetch: fetchFn,
+        now,
+      });
+      if (
+        outcome.status === 'ok' &&
+        (outcome.summary || outcome.reminded || outcome.published || outcome.error)
+      ) {
+        log('economic', outcome);
+      }
+    } catch (error) {
+      logError('economic', error);
+    }
+    try {
+      const outcome = await runNews({
+        config: readConfig(env),
+        store: d1Store(env.DB),
+        fetch: fetchFn,
+        now,
+      });
+      if (outcome.status === 'ok' && (outcome.sent || outcome.error)) log('news', outcome);
+    } catch (error) {
+      logError('news', error);
     }
   },
 };

@@ -11,15 +11,20 @@ WhatsApp Cloud API for each timed meeting starting within `REMINDER_MINUTES`. Ea
 reminded once; declined and all-day events are skipped. Delivery receipts arrive on
 `/whatsapp/webhook`.
 
-| Route                          | Purpose                                                    |
-| ------------------------------ | ---------------------------------------------------------- |
-| `GET /health`                  | `{ ok, google: "connected" \| "not-connected" }`           |
-| `GET /google/connect`          | Connects the calendar here directly (no app sign-in)       |
-| `GET /v1/auth/google/start`    | Sign-in from the app (`?origin=` must be in `APP_ORIGINS`) |
-| `GET /v1/auth/google/callback` | Finishes it: stores calendar access and starts a session   |
-| `GET /v1/account`              | Who is signed in, and which channels the server can use    |
-| `/v1/notifications/*`          | The app's notification contract: bell, log, routing, tests |
-| `GET`/`POST /whatsapp/webhook` | Meta's verification and signed delivery receipts           |
+| Route                             | Purpose                                                    |
+| --------------------------------- | ---------------------------------------------------------- |
+| `GET /health`                     | `{ ok, google: "connected" \| "not-connected" }`           |
+| `GET /google/connect`             | Connects the calendar here directly (no app sign-in)       |
+| `GET /v1/auth/google/start`       | Sign-in from the app (`?origin=` must be in `APP_ORIGINS`) |
+| `GET /v1/auth/google/callback`    | Finishes it: stores calendar access and starts a session   |
+| `GET /v1/account`                 | Who is signed in, and which channels the server can use    |
+| `/v1/notifications/*`             | The app's notification contract: bell, log, routing, tests |
+| `GET /v1/economic`                | The watch on US releases and what is coming up             |
+| `PUT`/`DELETE /v1/economic/watch` | Saves or stops the watch (and its channels, if given)      |
+| `GET /v1/news`                    | The news followed and the latest items sent                |
+| `PUT`/`DELETE /v1/news/watch`     | Saves or stops it (and its channels, if given)             |
+| `POST /v1/instructions`           | Claude reads an instruction and proposes the settings      |
+| `GET`/`POST /whatsapp/webhook`    | Meta's verification and signed delivery receipts           |
 
 The app reaches `/v1` on its own domain: Vercel rewrites `/v1/*` here (`apps/web/vercel.json`),
 and `npm run dev` proxies it when `API_PROXY_TARGET` is set in `apps/web/.env.local`. The session
@@ -30,6 +35,29 @@ and CSRF cookies are therefore first-party, and the app's CSP needs no new origi
 outcome, sent, skipped or failed, is stored with the notification, so the app shows it. WhatsApp
 needs an approved template per type: `meeting_reminder` covers meeting reminders and tests;
 other types are recorded as skipped on WhatsApp until they have one. Email uses Resend.
+
+**US economic releases:** on the Notifications page the owner types an instruction ("remind me
+15 minutes before major US releases and send me the figures afterwards"). Claude
+(`CLAUDE_MODEL`, structured output, low effort) turns it into settings, which the app shows to
+confirm; Claude never changes anything itself and writes none of the messages. Release dates
+come from FRED (`FRED_API_KEY`, free) a few times a day, and Fed decision days from the list in
+`src/fomc.ts`. Each minute the cron sends due reminders (topic `release`) and, after a release,
+checks FRED (or the Fed's press release feed) until the figures arrive, for up to six hours, then
+posts them once as published, with the previous figure. No forecasts or consensus figures.
+Instructions are capped at 40 a day.
+
+**Figures at release time:** with `BLS_API_KEY` (free), CPI, PPI, the jobs report and job
+openings are read from BLS's own API in the first 30 minutes after release, usually within a
+minute of 13:30 UK time; FRED covers the rest and is the fallback.
+
+**News:** the owner follows tickers, topics and central banks (same instructions box, or chosen by
+hand). Each minute the cron reads the Fed, Bank of England and ECB feeds (rate decisions and
+statements only; every 15 minutes outside weekday working hours) and, with `ALPACA_KEY_ID` and
+`ALPACA_SECRET_KEY`, Benzinga headlines through Alpaca. A headline tagged with a watched ticker
+always matches; for topics, `CLAUDE_FILTER_MODEL` (Haiku, no thinking, at most 1,000 small
+requests a day) picks the headlines clearly about one, or the topic's words are matched without
+Claude. News goes to the app only by default (topic `news`), as each WhatsApp message costs. Items
+are passed on as published, with their source; at most 10 a minute.
 
 ## Security
 
@@ -78,6 +106,13 @@ Create a **Utility** template named `meeting_reminder` in English (UK):
 `{{1}}` is the event title (one line, at most 60 characters) and `{{2}}` the start time in
 `TIMEZONE`. Until it is approved, sends fail and are retried each minute while the meeting is
 still ahead. Meta's test number only delivers to the recipients added on the API Setup page.
+
+For economic release figures, also create a **Utility** template named `release_update`:
+
+> Desk Twin update on {{1}}: {{2}}. Full details and the source are in the Desk Twin app.
+
+Sample values: `{{1}}` "US CPI for October 2026", `{{2}}` "m/m +0.3%, y/y 2.9%, core y/y
+3.0%". Until it is approved, figures reach the app (and email) and WhatsApp shows as failed.
 
 ## Local run
 

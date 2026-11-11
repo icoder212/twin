@@ -27,6 +27,12 @@ const configSchema = z.object({
   /** International format, digits only, e.g. 447700900123. */
   WHATSAPP_TO: z.string().regex(/^\d{8,15}$/),
   WHATSAPP_TEMPLATE: z.string().regex(/^[a-z0-9_]+$/),
+  /** "Desk Twin update on {{1}}: {{2}}. Full details are in the app." Unset: no WhatsApp copy. */
+  WHATSAPP_UPDATE_TEMPLATE: z
+    .string()
+    .regex(/^[a-z0-9_]+$/)
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
   WHATSAPP_TEMPLATE_LANGUAGE: z.string().regex(/^[a-z]{2}(?:_[A-Z]{2})?$/),
   GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/),
   REMINDER_MINUTES: z.coerce.number().int().min(1).max(120),
@@ -45,6 +51,26 @@ const configSchema = z.object({
   RESEND_API_KEY: optionalSecret,
   /** Sender, e.g. "Desk Twin <onboarding@resend.dev>" (Resend's test sender reaches only you). */
   RESEND_FROM: z.string().min(3),
+  /** Claude reads the owner's instructions; without a key the app offers the settings instead. */
+  ANTHROPIC_API_KEY: optionalSecret,
+  CLAUDE_MODEL: z.string().regex(/^claude-[a-z0-9-]+$/),
+  /** Picks out headlines on the owner's topics: a small, fast model keeps this to pennies a day. */
+  CLAUDE_FILTER_MODEL: z.string().regex(/^claude-[a-z0-9-]+$/),
+  /** BLS key, free: CPI, PPI, jobs and job openings straight from the source, at release time. */
+  BLS_API_KEY: z
+    .string()
+    .regex(/^[A-Za-z0-9]{20,64}$/)
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+  /** Alpaca market data keys (free account): Benzinga headlines. Both or neither. */
+  ALPACA_KEY_ID: optionalSecret,
+  ALPACA_SECRET_KEY: optionalSecret,
+  /** St. Louis Fed (FRED) key, free: US release dates and published figures. */
+  FRED_API_KEY: z
+    .string()
+    .regex(/^[a-z0-9]{32}$/)
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
 });
 export type Config = z.infer<typeof configSchema>;
 

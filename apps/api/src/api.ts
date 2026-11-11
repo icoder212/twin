@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import {
   chosenChannels,
+  economicWatchUpdateSchema,
   idSchema,
+  instructionRequestSchema,
+  newsWatchUpdateSchema,
   notificationPreferencesSchema,
   urgencySchema,
   type AccountStatus,
@@ -9,12 +12,16 @@ import {
   type NotificationEvent,
 } from '@twindesk/core';
 import type { Config } from './config';
+import { economicState, loadWatch, saveWatch } from './economic';
 import { apiError, json, redirect, text, withCookies } from './http';
+import { interpret, InstructionError } from './instructions';
+import { loadNewsWatch, newsState, saveNewsWatch } from './news';
 import { localTime, notify } from './notify';
 import { loadPreferences, savePreferences, serverContacts, serverPolicy } from './settings';
 import { beginGoogle, completeGoogle } from './signin';
 import { endSession, readSession, sameAppRequest, startSession } from './session';
 import type { Store } from './store';
+import { reminderTemplate } from './whatsapp';
 
 export interface ApiDeps {
   config: Config;
@@ -195,13 +202,60 @@ export async function handleApi(request: Request, url: URL, deps: ApiDeps): Prom
             ...TEST_COPY[urgency],
             href: '/notifications?tab=log',
             channels: chosenChannels(preferences),
-            whatsapp: {
-              subject: 'Desk Twin test',
-              at: localTime(config, new Date(now).toISOString()),
-            },
+            whatsapp: reminderTemplate(
+              config,
+              'Desk Twin test',
+              localTime(config, new Date(now).toISOString()),
+            ),
           },
         );
         return json(event);
+      }
+      case 'GET /v1/economic':
+        return json(await economicState({ ...deps, now }));
+      case 'PUT /v1/economic/watch': {
+        const { watch, channels } = await readBody(request, economicWatchUpdateSchema);
+        if (channels) {
+          const preferences = await loadPreferences(store);
+          const routing = { ...preferences.routing, release: ['in-app' as const, ...channels] };
+          await savePreferences(store, { ...preferences, routing }, now);
+        }
+        await saveWatch({ ...deps, now }, watch);
+        return json(await economicState({ ...deps, now }));
+      }
+      case 'DELETE /v1/economic/watch':
+        await saveWatch({ ...deps, now }, null);
+        return json(await economicState({ ...deps, now }));
+      case 'GET /v1/news':
+        return json(await newsState({ ...deps, now }));
+      case 'PUT /v1/news/watch': {
+        const { watch, channels } = await readBody(request, newsWatchUpdateSchema);
+        if (channels) {
+          const preferences = await loadPreferences(store);
+          const routing = { ...preferences.routing, news: ['in-app' as const, ...channels] };
+          await savePreferences(store, { ...preferences, routing }, now);
+        }
+        await saveNewsWatch(store, watch, now);
+        return json(await newsState({ ...deps, now }));
+      }
+      case 'DELETE /v1/news/watch':
+        await saveNewsWatch(store, null, now);
+        return json(await newsState({ ...deps, now }));
+      case 'POST /v1/instructions': {
+        const { text: instruction } = await readBody(request, instructionRequestSchema);
+        const { routing } = await loadPreferences(store);
+        const current = { economic: await loadWatch(store), news: await loadNewsWatch(store) };
+        try {
+          return json(
+            await interpret({ ...deps, now }, instruction, current, {
+              economic: routing.release,
+              news: routing.news,
+            }),
+          );
+        } catch (error) {
+          if (error instanceof InstructionError) return apiError(error.status, error.message);
+          throw error;
+        }
       }
       default:
         return apiError(404, 'Not found.');

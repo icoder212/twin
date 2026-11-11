@@ -27,8 +27,11 @@ Sign in with any demo account (they are listed on the sign-in page in demo build
 | `priya.shah@demo.alchmai.com`  | Compliance    | Prop firms          |
 | `sam.okafor@demo.alchmai.com`  | Administrator | Brokers             |
 
-Password `DeskTwin!2026`, authenticator code `246810`. Demo credentials exist only in mock
-builds; a build pointed at the real API contains none of them.
+The password is shared directly, not written here: the deployed demo checks it against a hash
+(`DEMO_PASSWORD_SHA256` in `apps/web/src/app/env.ts`, or `VITE_DEMO_PASSWORD_SHA256` to change it
+without a code change). Tests and local tools without a hash use `DEMO_PASSWORD` from the mock.
+The authenticator code is `246810`. Demo credentials exist only in mock builds; a build pointed
+at the real API contains none of them.
 
 ### Showing it to a client
 

@@ -16,12 +16,15 @@
   ],
   "vars": {
     "WHATSAPP_TEMPLATE": "meeting_reminder",
+    "WHATSAPP_UPDATE_TEMPLATE": "release_update",
     "WHATSAPP_TEMPLATE_LANGUAGE": "en_GB",
     "GRAPH_API_VERSION": "v26.0",
     "REMINDER_MINUTES": "10",
     "TIMEZONE": "Europe/London",
     "APP_ORIGINS": "https://twin.alchmai.com,https://twin-umber-nu.vercel.app,http://localhost:5173",
     "RESEND_FROM": "Desk Twin <onboarding@resend.dev>",
+    "CLAUDE_MODEL": "claude-opus-5-5",
+    "CLAUDE_FILTER_MODEL": "claude-haiku-5-5",
   },
   "observability": { "enabled": true },
 }

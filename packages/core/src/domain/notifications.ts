@@ -60,6 +60,7 @@ export const ROUTABLE_TOPICS = [
   'calendar',
   'price',
   'release',
+  'news',
   'loss-limit',
   'session-rule',
   'source-health',
@@ -107,9 +108,18 @@ export type MessagePrivacy = z.infer<typeof messagePrivacySchema>;
 export const quietModeSchema = z.enum(['off', 'outside-session', 'custom']);
 export type QuietMode = z.infer<typeof quietModeSchema>;
 
+/** Settings saved before an alert type existed get the app alone for it. */
+const routingSchema = z.preprocess(
+  (value) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? { ...Object.fromEntries(ROUTABLE_TOPICS.map((t) => [t, ['in-app']])), ...value }
+      : value,
+  z.record(routableTopicSchema, z.array(deliveryChannelSchema)),
+);
+
 export const notificationPreferencesSchema = z.object({
   /** Channels per alert type. The app always gets every notification, whatever is chosen here. */
-  routing: z.record(routableTopicSchema, z.array(deliveryChannelSchema)),
+  routing: routingSchema,
   quietHours: z.object({
     mode: quietModeSchema,
     start: hhmmSchema,
@@ -199,6 +209,7 @@ export const NOTIFICATION_TOPICS = [
   'price',
   'loss-limit',
   'release',
+  'news',
   'session-rule',
   'source-health',
   'approval',
@@ -215,6 +226,7 @@ export const TOPIC_LABELS: Record<NotificationTopic, string> = {
   price: 'Price alert',
   'loss-limit': 'Loss limit alert',
   release: 'Release reminder',
+  news: 'News alert',
   'session-rule': 'Session rule alert',
   'source-health': 'Data source alert',
   approval: 'Approval waiting',
@@ -240,7 +252,12 @@ export const TOPIC_ROUTING: Record<
   },
   release: {
     label: 'Economic releases',
-    description: 'Shortly before a release on your watchlist',
+    description: 'Before each release you watch, and its figures afterwards',
+    urgency: 'important',
+  },
+  news: {
+    label: 'News',
+    description: 'Headlines and central bank news you follow',
     urgency: 'important',
   },
   'loss-limit': {

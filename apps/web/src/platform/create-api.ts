@@ -27,7 +27,13 @@ export async function createApi(
     const calendar = env.googleClientId ? createGoogleCalendarFeed() : undefined;
     // Notifications switch to the owner's real account on the server while they are signed in.
     return withRealNotifications(
-      createMockApi({ tenant, store: sessionStore, speed: 1, calendar }),
+      createMockApi({
+        tenant,
+        store: sessionStore,
+        speed: 1,
+        calendar,
+        demoPasswordSha256: env.demoPasswordSha256,
+      }),
     );
   }
   if (!env.apiBaseUrl) throw new Error('VITE_API_BASE_URL is required when VITE_API_MODE=http');

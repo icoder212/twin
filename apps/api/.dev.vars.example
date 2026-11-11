@@ -23,3 +23,13 @@ WHATSAPP_TO=
 
 # Resend > API Keys > a key with Sending access. Optional: without it, email is reported as not set up.
 RESEND_API_KEY=
+
+# console.anthropic.com > API Keys. Optional: without it, the app offers the settings to tick instead.
+ANTHROPIC_API_KEY=
+# fredaccount.stlouisfed.org/apikeys (free). Optional: without it, only the Fed decision is scheduled.
+FRED_API_KEY=
+# data.bls.gov/registrationEngine (free). Optional: CPI, PPI and jobs figures at release time.
+BLS_API_KEY=
+# alpaca.markets > free account > API keys (paper trading is fine). Optional: Benzinga headlines.
+ALPACA_KEY_ID=
+ALPACA_SECRET_KEY=
