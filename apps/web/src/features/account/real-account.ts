@@ -7,6 +7,7 @@ import {
   isApiError,
   type AccountStatus,
   type AlertsApi,
+  type BriefingsApi,
   type HttpClient,
   type NotificationsApi,
   type RequestOptions,
@@ -124,7 +125,10 @@ export function realRequest<T>(path: string, opts: RequestOptions<T>): Promise<T
   return guarded(() => http.request(path, opts));
 }
 
-/** The demo API, with notifications served by the real server while the owner is signed in. */
+/**
+ * The demo API, with notifications and briefings served by the real server while the owner is
+ * signed in.
+ */
 export function withRealNotifications<T extends TwinDeskApi>(mock: T): T {
   const notifications: NotificationsApi = {
     preferences: () =>
@@ -173,5 +177,14 @@ export function withRealNotifications<T extends TwinDeskApi>(mock: T): T {
     markRead: (ids) =>
       isReal() ? guarded(() => realApi().alerts.markRead(ids)) : mock.alerts.markRead(ids),
   };
-  return { ...mock, notifications, alerts };
+  const briefings: BriefingsApi = {
+    list: () => (isReal() ? guarded(() => realApi().briefings.list()) : mock.briefings.list()),
+    update: (input) =>
+      isReal() ? guarded(() => realApi().briefings.update(input)) : mock.briefings.update(input),
+    preview: (kind) =>
+      isReal() ? guarded(() => realApi().briefings.preview(kind)) : mock.briefings.preview(kind),
+    sendNow: (kind) =>
+      isReal() ? guarded(() => realApi().briefings.sendNow(kind)) : mock.briefings.sendNow(kind),
+  };
+  return { ...mock, notifications, alerts, briefings };
 }

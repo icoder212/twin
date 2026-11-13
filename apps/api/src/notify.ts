@@ -34,6 +34,10 @@ export interface NotifyInput {
   href?: string;
   /** Explicit channels (a test uses every chosen one) instead of the type's routing. */
   channels?: DeliveryChannel[];
+  /** Sent at a time the owner set, such as a briefing, so quiet hours do not hold it. */
+  scheduled?: boolean;
+  /** The whole message for email when the body is a summary, such as a briefing. */
+  emailText?: string;
   /** The approved WhatsApp template to use. Alerts without one are skipped on WhatsApp. */
   whatsapp?: WhatsAppTemplate;
 }
@@ -76,7 +80,10 @@ export async function notify(deps: NotifyDeps, input: NotifyInput): Promise<Noti
   };
   const outbound: Array<{ id: string; channel: DeliveryChannel }> = [];
 
-  const planned = planDeliveries(input, ctx, input.channels ? { channels: input.channels } : {});
+  const planned = planDeliveries(input, ctx, {
+    ...(input.channels ? { channels: input.channels } : {}),
+    ...(input.scheduled ? { scheduled: true } : {}),
+  });
   for (const plan of planned) {
     const delivery: Delivery = {
       channel: plan.channel,
@@ -106,12 +113,15 @@ export async function notify(deps: NotifyDeps, input: NotifyInput): Promise<Noti
           productName: PRODUCT,
           privacy: preferences.privacy,
         });
+        // Minimal privacy keeps the content out of email, so the full text goes only without it.
+        const body =
+          input.emailText && preferences.privacy !== 'minimal' ? input.emailText : rendered.body;
         const id = await sendEmail(
           config,
           {
-            to: config.OWNER_GOOGLE_ACCOUNT,
+            to: config.EMAIL_TO ?? config.OWNER_GOOGLE_ACCOUNT,
             subject: rendered.subject ?? rendered.title,
-            text: `${rendered.body}\n\n${rendered.footer}`,
+            text: `${body}\n\n${rendered.footer}`,
           },
           fetch,
         );

@@ -1,5 +1,6 @@
 import {
   US_RELEASE_INFO,
+  US_RELEASES,
   dayKeyIn,
   economicWatchSchema,
   formatRelative,
@@ -296,13 +297,15 @@ export async function loadWatch(store: Store): Promise<EconomicWatch | null> {
 export async function saveWatch(deps: EconomicDeps, watch: EconomicWatch | null): Promise<void> {
   const clean = watch ? { ...watch, events: [...new Set(watch.events)] } : null;
   await deps.store.putSetting(WATCH_KEY, JSON.stringify(clean), deps.now);
-  if (clean) await refreshSchedule(deps, clean, true);
+  if (clean) await refreshSchedule(deps, true);
 }
 
-/** The scheduled releases for the events on the watch, refreshed a few times a day. */
+/**
+ * The scheduled dates of every US release type, refreshed a few times a day: the watch picks from
+ * them, and the morning brief lists the whole day.
+ */
 export async function refreshSchedule(
   deps: EconomicDeps,
-  watch: EconomicWatch,
   force = false,
 ): Promise<string | undefined> {
   const { config, store, fetch, now } = deps;
@@ -313,7 +316,7 @@ export async function refreshSchedule(
   const to = newYorkDay(now, LOOKAHEAD_DAYS);
   const rows: Array<Pick<ReleaseRow, 'key' | 'event' | 'releaseDate' | 'at'>> = [];
   let problem: string | undefined;
-  for (const event of watch.events) {
+  for (const event of US_RELEASES) {
     if (event === 'fomc') {
       for (const day of FOMC_DECISION_DAYS.filter((d) => d >= from && d <= to)) {
         rows.push({
@@ -471,7 +474,7 @@ export async function runEconomic(deps: EconomicDeps): Promise<EconomicOutcome> 
   const watch = await loadWatch(store);
   if (!watch) return { status: 'off' };
 
-  let firstError = await refreshSchedule(deps, watch).catch(failure);
+  let firstError = await refreshSchedule(deps).catch(failure);
   const summary = await sendSummary(deps, watch).catch((error: unknown) => {
     firstError ??= `summary: ${failure(error)}`;
     return false;

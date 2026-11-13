@@ -51,7 +51,8 @@ export function serverPolicy(): NotificationPolicy {
 
 /**
  * The owner's addresses come from the server's settings: the Google account they signed in with
- * (verified by Google) and the WhatsApp number registered with Meta. Email needs Resend.
+ * (verified by Google) or EMAIL_TO, and the WhatsApp number registered with Meta. Email needs
+ * Resend.
  */
 export function serverContacts(config: Config, verifiedAt: string): Contact[] {
   const contacts: Contact[] = [
@@ -65,7 +66,7 @@ export function serverContacts(config: Config, verifiedAt: string): Contact[] {
   if (config.RESEND_API_KEY) {
     contacts.unshift({
       channel: 'email',
-      address: maskAddress('email', config.OWNER_GOOGLE_ACCOUNT),
+      address: maskAddress('email', config.EMAIL_TO ?? config.OWNER_GOOGLE_ACCOUNT),
       verifiedAt,
     });
   }

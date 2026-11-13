@@ -336,6 +336,7 @@ export const briefingKindSchema = z.enum(BRIEFING_KINDS);
 export type BriefingKind = z.infer<typeof briefingKindSchema>;
 
 export const BRIEFING_SECTIONS = [
+  'markets',
   'releases',
   'limits',
   'action-items',
@@ -356,7 +357,7 @@ export const BRIEFING_META: Record<
   'morning-brief': {
     title: 'Morning brief',
     description: 'Your day on one page, before the session opens.',
-    sections: ['releases', 'limits', 'action-items', 'approvals', 'news', 'sources'],
+    sections: ['markets', 'releases', 'limits', 'action-items', 'approvals', 'news', 'sources'],
   },
   'end-of-day': {
     title: 'End-of-day recap',
@@ -366,6 +367,7 @@ export const BRIEFING_META: Record<
 };
 
 export const BRIEFING_SECTION_LABELS: Record<BriefingSection, string> = {
+  markets: 'Markets at the last close',
   releases: 'Today’s releases',
   limits: 'Room under your limits',
   'action-items': 'Open action items',
@@ -385,6 +387,8 @@ export const briefingScheduleSchema = z.object({
   days: z.array(z.number().int().min(0).max(6)).min(1, 'Pick at least one day').max(7),
   channels: z.array(deliveryChannelSchema).min(1, 'Pick at least one channel'),
   sections: z.array(briefingSectionSchema).min(1, 'Pick at least one section'),
+  /** The sections this service can fill; every section of the kind when absent. */
+  offered: z.array(briefingSectionSchema).optional(),
   lastSentAt: isoDateTimeSchema.optional(),
   nextRunAt: isoDateTimeSchema.optional(),
 });

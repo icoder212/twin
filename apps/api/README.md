@@ -34,7 +34,8 @@ and CSRF cookies are therefore first-party, and the app's CSP needs no new origi
 (Notifications → Delivery), using the shared `planDeliveries` rules and quiet hours. Every
 outcome, sent, skipped or failed, is stored with the notification, so the app shows it. WhatsApp
 needs an approved template per type: `meeting_reminder` covers meeting reminders and tests;
-other types are recorded as skipped on WhatsApp until they have one. Email uses Resend.
+other types are recorded as skipped on WhatsApp until they have one. Email uses Resend and goes
+to `EMAIL_TO`, or to the owner's Google account when that is unset.
 
 **US economic releases:** on the Notifications page the owner types an instruction ("remind me
 15 minutes before major US releases and send me the figures afterwards"). Claude
@@ -58,6 +59,19 @@ always matches; for topics, `CLAUDE_FILTER_MODEL` (Haiku, no thinking, at most 1
 requests a day) picks the headlines clearly about one, or the topic's words are matched without
 Claude. News goes to the app only by default (topic `news`), as each WhatsApp message costs. Items
 are passed on as published, with their source; at most 10 a minute.
+
+**Morning brief:** set on the Notifications page under Briefings (time, days, channels, sections).
+The cron sends it once a day at that time, within 30 minutes if a run is missed, and quiet hours
+do not hold it. It has three sections:
+- markets at the last completed close, with the change on the day: US-listed funds standing in
+  for the indices, gold and oil (Alpaca, consolidated prices), Bitcoin (Alpaca), and GBP/USD,
+  EUR/USD and EUR/GBP (the ECB's reference rates, from the ECB);
+- today's US releases and Fed, Bank of England and ECB decisions (`central-banks.ts` lists the last
+  two), each marked high or medium severity by its kind of event;
+- headlines on what the owner follows from the last 24 hours.
+
+Email carries the whole brief; the app and WhatsApp get a short summary. Only the morning brief is
+offered here; the end-of-day recap stays in the demo.
 
 ## Security
 

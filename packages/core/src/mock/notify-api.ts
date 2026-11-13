@@ -72,6 +72,13 @@ const MAX_EVENTS = 100;
 const VERIFY_TTL_MS = 10 * 60_000;
 const MAX_VERIFY_ATTEMPTS = 5;
 
+const MARKETS = [
+  'S&P 500 (SPY): 597.12, up 0.4% at the last close',
+  'Nasdaq 100 (QQQ): 521.80, up 0.7% at the last close',
+  'Gold (GLD): 248.10, down 0.2% at the last close',
+  'GBP/USD: 1.2710, up 0.1% (ECB reference rate)',
+];
+
 const TOMORROW = [
   '08:00 EUR German Ifo business climate (medium impact)',
   '13:30 USD Durable goods orders m/m (high impact)',
@@ -253,6 +260,7 @@ export function createNotifyApi(deps: NotifyDeps) {
     const rw = buildRuleWatch(d.deskType, session.user.timezone, t);
     const pending = d.approvals.filter((a) => a.status === 'pending');
     const items: Record<BriefingSection, () => string[]> = {
+      markets: () => MARKETS,
       releases: () =>
         ECONOMIC_EVENTS.map(
           (e) =>

@@ -227,7 +227,7 @@ export function BriefingCard({
           <fieldset className="min-w-0">
             <legend className="mb-1.5 text-[13px] font-medium text-fg">What it covers</legend>
             <ul className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
-              {meta.sections.map((section) => {
+              {(schedule.offered ?? meta.sections).map((section) => {
                 const inputId = `${id}-section-${section}`;
                 return (
                   <li key={section} className="flex items-center gap-2.5">

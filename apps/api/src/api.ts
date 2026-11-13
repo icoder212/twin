@@ -11,6 +11,14 @@ import {
   type Notification,
   type NotificationEvent,
 } from '@twindesk/core';
+import {
+  briefState,
+  briefUpdateSchema,
+  buildBrief,
+  loadBrief,
+  saveBrief,
+  sendBrief,
+} from './briefing';
 import type { Config } from './config';
 import { economicState, loadWatch, saveWatch } from './economic';
 import { apiError, json, redirect, text, withCookies } from './http';
@@ -157,6 +165,26 @@ export async function handleApi(request: Request, url: URL, deps: ApiDeps): Prom
     ) {
       return apiError(409, SERVER_MANAGED);
     }
+    const brief = /^\/v1\/briefings\/([\w-]{1,32})(?:\/(preview|send))?$/.exec(url.pathname);
+    if (brief) {
+      if (brief[1] !== 'morning-brief') {
+        return apiError(404, 'Only the morning brief is available on this server for now.');
+      }
+      const briefDeps = { ...deps, now };
+      switch (`${request.method} ${brief[2] ?? ''}`) {
+        case 'PUT ': {
+          const saved = await saveBrief(briefDeps, await readBody(request, briefUpdateSchema));
+          if (!saved) return apiError(422, 'Pick at least one of markets, releases or news.');
+          return json(await briefState(briefDeps));
+        }
+        case 'GET preview':
+          return json((await buildBrief(briefDeps, (await loadBrief(store)).sections)).briefing);
+        case 'POST send':
+          return json(await sendBrief(briefDeps, await loadBrief(store)));
+        default:
+          return apiError(404, 'Not found.');
+      }
+    }
 
     switch (route) {
       case 'POST /v1/account/sign-out':
@@ -211,6 +239,8 @@ export async function handleApi(request: Request, url: URL, deps: ApiDeps): Prom
         );
         return json(event);
       }
+      case 'GET /v1/briefings':
+        return json([await briefState({ ...deps, now })]);
       case 'GET /v1/economic':
         return json(await economicState({ ...deps, now }));
       case 'PUT /v1/economic/watch': {

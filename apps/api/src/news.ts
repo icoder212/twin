@@ -121,7 +121,7 @@ export async function saveNewsWatch(store: Store, watch: NewsWatch | null, at: n
   await store.putSetting(WATCH_KEY, JSON.stringify(watch ? cleanNewsWatch(watch) : null), at);
 }
 
-async function loadRecent(store: Store): Promise<NewsAlert[]> {
+export async function loadRecent(store: Store): Promise<NewsAlert[]> {
   try {
     const parsed = z
       .array(newsAlertSchema)

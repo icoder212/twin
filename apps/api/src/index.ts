@@ -1,6 +1,7 @@
 import './jitless';
 import type { DeliveryStatus } from '@twindesk/core';
 import { handleApi } from './api';
+import { runBrief } from './briefing';
 import { readConfig, type Config, type Env } from './config';
 import { timingSafeEqual } from './crypto';
 import { json, text } from './http';
@@ -148,6 +149,17 @@ export default {
       }
     } catch (error) {
       logError('economic', error);
+    }
+    try {
+      const outcome = await runBrief({
+        config: readConfig(env),
+        store: d1Store(env.DB),
+        fetch: fetchFn,
+        now,
+      });
+      if (outcome.status === 'ok' && outcome.sent) log('briefing', outcome);
+    } catch (error) {
+      logError('briefing', error);
     }
     try {
       const outcome = await runNews({

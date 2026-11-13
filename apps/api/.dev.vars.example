@@ -23,6 +23,9 @@ WHATSAPP_TO=
 
 # Resend > API Keys > a key with Sending access. Optional: without it, email is reported as not set up.
 RESEND_API_KEY=
+# Optional: where email goes, if not OWNER_GOOGLE_ACCOUNT. Until you verify a domain in Resend,
+# its test sender delivers only to the address the Resend account was opened with.
+EMAIL_TO=
 
 # console.anthropic.com > API Keys. Optional: without it, the app offers the settings to tick instead.
 ANTHROPIC_API_KEY=

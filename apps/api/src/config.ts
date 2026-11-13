@@ -51,6 +51,15 @@ const configSchema = z.object({
   RESEND_API_KEY: optionalSecret,
   /** Sender, e.g. "Desk Twin <onboarding@resend.dev>" (Resend's test sender reaches only you). */
   RESEND_FROM: z.string().min(3),
+  /**
+   * Where email goes, if not the owner's Google account. Resend's test sender delivers only to the
+   * address its Resend account was opened with.
+   */
+  EMAIL_TO: z
+    .email()
+    .transform((v) => v.toLowerCase())
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
   /** Claude reads the owner's instructions; without a key the app offers the settings instead. */
   ANTHROPIC_API_KEY: optionalSecret,
   CLAUDE_MODEL: z.string().regex(/^claude-[a-z0-9-]+$/),

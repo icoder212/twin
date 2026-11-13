@@ -156,6 +156,21 @@ describe('runReminders', () => {
     ]);
   });
 
+  it('sends email to EMAIL_TO when it is set', async () => {
+    const preferences: NotificationPreferences = {
+      ...DEFAULT_PREFERENCES,
+      routing: { ...DEFAULT_PREFERENCES.routing, calendar: ['in-app', 'email'] },
+    };
+    await store.putSetting('notification-preferences', JSON.stringify(preferences), NOW);
+    const net = fakeNetwork([googleEvent('a', 8)]);
+    await run(net, {
+      ...baseConfig,
+      RESEND_API_KEY: 're_test_key_0123456789',
+      EMAIL_TO: 'inbox@example.org',
+    });
+    expect(net.emails).toEqual([expect.objectContaining({ to: ['inbox@example.org'] })]);
+  });
+
   it('shows email as not set up, rather than sending, until Resend is configured', async () => {
     const preferences: NotificationPreferences = {
       ...DEFAULT_PREFERENCES,

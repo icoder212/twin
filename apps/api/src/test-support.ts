@@ -24,6 +24,7 @@ export const baseConfig: Config = {
   APP_ORIGINS: [APP],
   RESEND_API_KEY: undefined,
   RESEND_FROM: 'Desk Twin <onboarding@resend.dev>',
+  EMAIL_TO: undefined,
   WHATSAPP_UPDATE_TEMPLATE: 'release_update',
   ANTHROPIC_API_KEY: undefined,
   CLAUDE_MODEL: 'claude-opus-5-5',
