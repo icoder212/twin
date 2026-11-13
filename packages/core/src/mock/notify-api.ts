@@ -79,6 +79,21 @@ const MARKETS = [
   'GBP/USD: 1.2710, up 0.1% (ECB reference rate)',
 ];
 
+const MOVERS = [
+  'For comparison, the S&P 500 (SPY) moved up 0.4%.',
+  'DMOA (Demo Alpha Inc.): 18.40, up 24.1%',
+  'DMOB (Demo Beta Ltd.): 7.12, down 19.6%',
+];
+
+const HEADLINES = [
+  'US: The Senate passed a stopgap spending bill, ending the threat of a government shutdown. (BBC News)',
+  'War and conflict: Ukraine and Russia exchanged drone attacks overnight on energy sites. (BBC News)',
+  'Oil: Brent crude fell after OPEC+ said it would keep output unchanged. (Benzinga)',
+  'Gold: Gold held near its record as the dollar weakened. (Benzinga)',
+];
+
+const RESULTS = ['13:30 US Producer prices (PPI) for October 2026: PPI m/m +0.2%, PPI y/y +2.6%.'];
+
 const TOMORROW = [
   '08:00 EUR German Ifo business climate (medium impact)',
   '13:30 USD Durable goods orders m/m (high impact)',
@@ -261,6 +276,9 @@ export function createNotifyApi(deps: NotifyDeps) {
     const pending = d.approvals.filter((a) => a.status === 'pending');
     const items: Record<BriefingSection, () => string[]> = {
       markets: () => MARKETS,
+      movers: () => MOVERS,
+      headlines: () => HEADLINES,
+      results: () => RESULTS,
       releases: () =>
         ECONOMIC_EVENTS.map(
           (e) =>

@@ -162,8 +162,9 @@ export function localClock(
 }
 
 /**
- * The calendar date ("2026-11-09") on the wall clock in `timezone`, `offsetDays` days on. Steps
- * an hour at a time, so days of 23 or 25 hours around a clock change are counted correctly.
+ * The calendar date ("2026-11-09") on the wall clock in `timezone`, `offsetDays` days on (back,
+ * when negative). Steps an hour at a time, so days of 23 or 25 hours around a clock change are
+ * counted correctly.
  */
 export function dayKeyIn(timezone: string, at: string | Date = new Date(), offsetDays = 0): string {
   const fmt = memo(
@@ -183,10 +184,11 @@ export function dayKeyIn(timezone: string, at: string | Date = new Date(), offse
   };
   let t = new Date(at).getTime();
   let key = keyAt(t);
-  for (let d = 0; d < offsetDays; d += 1) {
+  const step = offsetDays < 0 ? -3_600_000 : 3_600_000;
+  for (let d = 0; d < Math.abs(offsetDays); d += 1) {
     const from = key;
     while (key === from) {
-      t += 3_600_000;
+      t += step;
       key = keyAt(t);
     }
   }

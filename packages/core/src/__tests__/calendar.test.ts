@@ -105,6 +105,8 @@ describe('dayKeyIn', () => {
     // The UK clocks went back at 02:00 on 25 October 2026, so that day had 25 hours.
     expect(dayKeyIn('Europe/London', '2026-10-24T23:30:00Z')).toBe('2026-10-25');
     expect(dayKeyIn('Europe/London', '2026-10-24T23:30:00Z', 1)).toBe('2026-10-26');
+    expect(dayKeyIn('Europe/London', '2026-10-26T00:30:00Z', -1)).toBe('2026-10-25');
+    expect(dayKeyIn('Europe/London', '2026-10-26T00:30:00Z', -2)).toBe('2026-10-24');
     expect(dayKeyIn('America/New_York', '2026-11-09T03:00:00Z')).toBe('2026-11-08');
   });
 });

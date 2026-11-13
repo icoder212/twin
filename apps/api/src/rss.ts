@@ -1,4 +1,4 @@
-/** RSS from official sites (the Fed, the Bank of England, the ECB): read as text, never rendered. */
+/** RSS from the central banks and the BBC: read as text, never rendered. */
 
 const USER_AGENT = 'DeskTwin/0.1 (+https://twin.alchmai.com)';
 const MAX_BYTES = 512 * 1024;
@@ -8,6 +8,8 @@ export interface RssItem {
   title: string;
   link: string;
   at: number;
+  /** The feed's short description, when it has one. */
+  summary?: string;
 }
 
 const NAMED: Record<string, string> = {
@@ -51,7 +53,18 @@ export function parseRss(xml: string, linkPrefix: string): RssItem[] {
     if (!link.startsWith(linkPrefix) || Number.isNaN(at)) continue;
     const title = decodeEntities(tag('title')).replace(/\s+/g, ' ').trim().slice(0, 300);
     if (!title) continue;
-    items.push({ id: (tag('guid') || link).slice(0, 200), title, link, at });
+    const summary = decodeEntities(tag('description'))
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 300);
+    items.push({
+      id: (tag('guid') || link).slice(0, 200),
+      title,
+      link,
+      at,
+      ...(summary ? { summary } : {}),
+    });
   }
   return items;
 }

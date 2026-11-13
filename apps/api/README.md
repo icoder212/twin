@@ -62,10 +62,20 @@ are passed on as published, with their source; at most 10 a minute.
 
 **Morning brief:** set on the Notifications page under Briefings (time, days, channels, sections).
 The cron sends it once a day at that time, within 30 minutes if a run is missed, and quiet hours
-do not hold it. It has three sections:
+do not hold it. It has six sections:
+
 - markets at the last completed close, with the change on the day: US-listed funds standing in
   for the indices, gold and oil (Alpaca, consolidated prices), Bitcoin (Alpaca), and GBP/USD,
   EUR/USD and EUR/GBP (the ECB's reference rates, from the ECB);
+- the biggest moves: the five largest changes either way from the previous close across US
+  stocks priced at $5 or more (Alpaca's market movers, names from its asset list), beside the
+  S&P 500's move for comparison;
+- yesterday in the news: the last 24 hours on the US, wars and conflicts, oil and gold, from the
+  BBC's world, US and business feeds and Benzinga's market-wide items. `CLAUDE_FILTER_MODEL` (Haiku)
+  writes up to three lines a topic from those stories only, citing them; lines with a bad citation
+  or failing the advice checks are dropped. It runs once a day (cached, at most six calls) and,
+  without Claude, the headlines are listed as published;
+- yesterday's results: the figures yesterday's US releases and any Fed decision published;
 - today's US releases and Fed, Bank of England and ECB decisions (`central-banks.ts` lists the last
   two), each marked high or medium severity by its kind of event;
 - headlines on what the owner follows from the last 24 hours.

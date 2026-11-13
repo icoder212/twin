@@ -15,14 +15,15 @@ const CRYPTO_BARS = 'https://data.alpaca.markets/v1beta3/crypto/us/bars';
 const ECB_RATES =
   'https://data-api.ecb.europa.eu/service/data/EXR/D.USD+GBP.EUR.SP00.A?lastNObservations=2&format=csvdata';
 
-export const FUNDS = [
-  { symbol: 'SPY', label: 'S&P 500 (SPY)' },
-  { symbol: 'QQQ', label: 'Nasdaq 100 (QQQ)' },
+/** `short` names the ones that also go in the brief's one-line summary. */
+export const FUNDS: ReadonlyArray<{ symbol: string; label: string; short?: string }> = [
+  { symbol: 'SPY', label: 'S&P 500 (SPY)', short: 'S&P 500' },
+  { symbol: 'QQQ', label: 'Nasdaq 100 (QQQ)', short: 'Nasdaq 100' },
   { symbol: 'DIA', label: 'Dow Jones (DIA)' },
   { symbol: 'IWM', label: 'Russell 2000 (IWM)' },
-  { symbol: 'GLD', label: 'Gold (GLD)' },
-  { symbol: 'USO', label: 'US oil (USO)' },
-] as const;
+  { symbol: 'GLD', label: 'Gold (GLD)', short: 'gold' },
+  { symbol: 'USO', label: 'US oil (USO)', short: 'oil' },
+];
 
 const NEW_YORK = 'America/New_York';
 const DAY_MS = 86_400_000;
@@ -38,6 +39,17 @@ const barsSchema = z.object({
 interface Close {
   day: string;
   value: number;
+}
+
+/** Lines for the brief, and the main moves in a few words for its summary. */
+export interface Markets {
+  lines: string[];
+  moves: string[];
+}
+
+interface Quote {
+  line: string;
+  move?: string;
 }
 
 /** "up 0.4%", "down 1.2%" or "unchanged", to one decimal place. */
@@ -81,7 +93,7 @@ function lastTwo(closes: Close[], before: string): [Close, Close] | null {
   return previous && last ? [previous, last] : null;
 }
 
-async function fundLines(config: Config, fetchFn: typeof fetch, now: number): Promise<string[]> {
+async function fundQuotes(config: Config, fetchFn: typeof fetch, now: number): Promise<Quote[]> {
   const url = new URL(STOCK_BARS);
   url.searchParams.set('symbols', FUNDS.map((f) => f.symbol).join(','));
   url.searchParams.set('timeframe', '1Day');
@@ -97,18 +109,22 @@ async function fundLines(config: Config, fetchFn: typeof fetch, now: number): Pr
     now >= zonedInstant(today, SESSION_CLOSED, NEW_YORK)
       ? dayKeyIn(NEW_YORK, new Date(now), 1)
       : today;
-  return FUNDS.flatMap(({ symbol, label }) => {
+  return FUNDS.flatMap(({ symbol, label, short }) => {
     const closes = (bars[symbol] ?? []).map((b) => ({ day: dayKeyIn(NEW_YORK, b.t), value: b.c }));
     const pair = lastTwo(closes, before);
     if (!pair) return [];
     const [previous, last] = pair;
+    const moved = change(last.value, previous.value);
     return [
-      `${label}: ${amount(last.value, 2)}, ${change(last.value, previous.value)} on ${weekday(last.day)}`,
+      {
+        line: `${label}: ${amount(last.value, 2)}, ${moved} on ${weekday(last.day)}`,
+        ...(short ? { move: `${short} ${moved}` } : {}),
+      },
     ];
   });
 }
 
-async function bitcoinLine(config: Config, fetchFn: typeof fetch, now: number) {
+async function bitcoinQuote(config: Config, fetchFn: typeof fetch, now: number): Promise<Quote[]> {
   const url = new URL(CRYPTO_BARS);
   url.searchParams.set('symbols', 'BTC/USD');
   url.searchParams.set('timeframe', '1Day');
@@ -119,19 +135,22 @@ async function bitcoinLine(config: Config, fetchFn: typeof fetch, now: number) {
   if (!pair) return [];
   const [previous, last] = pair;
   return [
-    `Bitcoin (BTC/USD): ${amount(last.value, 0)}, ${change(last.value, previous.value)} on ${weekday(last.day)} (UTC day)`,
+    {
+      line: `Bitcoin (BTC/USD): ${amount(last.value, 0)}, ${change(last.value, previous.value)} on ${weekday(last.day)} (UTC day)`,
+    },
   ];
 }
 
 /** The ECB's euro reference rates for USD and GBP, crossed for GBP/USD. */
-async function rateLines(fetchFn: typeof fetch): Promise<string[]> {
+async function rateQuotes(fetchFn: typeof fetch): Promise<Quote[]> {
   const response = await fetchFn(ECB_RATES, { headers: { Accept: 'text/csv' } });
   if (!response.ok) throw new Error(`ECB rates returned ${response.status}`);
   const [header = '', ...rows] = (await response.text()).trim().split(/\r?\n/);
   const columns = header.split(',');
   const at = (name: string) => columns.indexOf(name);
   const [currency, period, value] = [at('CURRENCY'), at('TIME_PERIOD'), at('OBS_VALUE')];
-  if (currency < 0 || period < 0 || value < 0) throw new Error('ECB rates sent something unexpected');
+  if (currency < 0 || period < 0 || value < 0)
+    throw new Error('ECB rates sent something unexpected');
   // Later columns hold quoted titles that may contain commas; the ones read here come first.
   const perEuro = new Map<string, Map<string, number>>();
   for (const row of rows) {
@@ -152,29 +171,111 @@ async function rateLines(fetchFn: typeof fetch): Promise<string[]> {
     ['EUR/USD', (d) => usd.get(d)!],
     ['EUR/GBP', (d) => gbp.get(d)!],
   ];
-  return pairs.map(
-    ([name, rate]) =>
-      `${name}: ${amount(rate(last), 4)}, ${change(rate(last), rate(previous))} (ECB reference rate, ${weekday(last)})`,
-  );
+  return pairs.map(([name, rate]) => ({
+    line: `${name}: ${amount(rate(last), 4)}, ${change(rate(last), rate(previous))} (ECB reference rate, ${weekday(last)})`,
+    ...(name === 'GBP/USD' ? { move: `GBP/USD ${amount(rate(last), 4)}` } : {}),
+  }));
+}
+
+const MOVERS = 'https://data.alpaca.markets/v1beta1/screener/stocks/movers?top=50';
+/** The SEC's line for penny stocks; below it the list fills with warrants and sub-dollar shares. */
+export const MIN_MOVER_PRICE = 5;
+const MOVERS_SHOWN = 5;
+
+const moverSchema = z.object({
+  symbol: z.string().regex(/^[A-Z][A-Z0-9.]{0,9}$/),
+  percent_change: z.number(),
+  price: z.number(),
+});
+const moversSchema = z.object({ gainers: z.array(moverSchema), losers: z.array(moverSchema) });
+const assetSchema = z.object({ name: z.string().max(200) });
+
+/** "Focus Universal Inc. Common Stock" reads as "Focus Universal Inc.". */
+function companyName(name: string): string {
+  return name
+    .replace(
+      /\s+(?:Class [A-Z]\s+)?(?:Common Stock|Ordinary Shares?|Common Shares?|American Depositary Shares?)\b.*$/i,
+      '',
+    )
+    .trim();
+}
+
+/** The company's name from Alpaca's asset list; the symbol alone when it cannot be found. */
+async function assetName(config: Config, symbol: string, fetchFn: typeof fetch) {
+  const host = config.ALPACA_KEY_ID?.startsWith('PK')
+    ? 'https://paper-api.alpaca.markets'
+    : 'https://api.alpaca.markets';
+  try {
+    const response = await fetchFn(`${host}/v2/assets/${encodeURIComponent(symbol)}`, {
+      headers: {
+        Accept: 'application/json',
+        'APCA-API-KEY-ID': config.ALPACA_KEY_ID ?? '',
+        'APCA-API-SECRET-KEY': config.ALPACA_SECRET_KEY ?? '',
+      },
+    });
+    const parsed = assetSchema.safeParse(await response.json().catch(() => null));
+    return response.ok && parsed.success ? companyName(parsed.data.name) : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The largest moves either way across US stocks at the last close, from Alpaca's market movers
+ * (close against the previous close). Stocks under $5 are left out.
+ */
+export async function movers(config: Config, fetchFn: typeof fetch): Promise<Markets> {
+  if (!config.ALPACA_KEY_ID || !config.ALPACA_SECRET_KEY) throw new Error('No Alpaca keys');
+  const response = await fetchFn(MOVERS, {
+    headers: {
+      Accept: 'application/json',
+      'APCA-API-KEY-ID': config.ALPACA_KEY_ID,
+      'APCA-API-SECRET-KEY': config.ALPACA_SECRET_KEY,
+    },
+  });
+  if (!response.ok) throw new Error(`Alpaca movers returned ${response.status}`);
+  const parsed = moversSchema.safeParse(await response.json().catch(() => null));
+  if (!parsed.success) throw new Error('Alpaca movers sent something unexpected');
+  const top = [...parsed.data.gainers, ...parsed.data.losers]
+    .filter((m) => m.price >= MIN_MOVER_PRICE && Math.abs(m.percent_change) >= 1)
+    .sort((a, b) => Math.abs(b.percent_change) - Math.abs(a.percent_change))
+    .slice(0, MOVERS_SHOWN);
+  const names = await Promise.all(top.map((m) => assetName(config, m.symbol, fetchFn)));
+  const moved = (pct: number) => `${pct > 0 ? 'up' : 'down'} ${Math.abs(pct).toFixed(1)}%`;
+  return {
+    lines: top.map((m, i) => {
+      const name = names[i] ? ` (${names[i]})` : '';
+      return `${m.symbol}${name}: ${amount(m.price, 2)}, ${moved(m.percent_change)}`;
+    }),
+    moves: top.map((m) => `${m.symbol} ${moved(m.percent_change)}`),
+  };
 }
 
 /**
  * One line per instrument. A source that cannot be reached says so in its place rather than
  * holding up the rest of the brief.
  */
-export async function marketLines(
+export async function markets(
   config: Config,
   fetchFn: typeof fetch,
   now: number,
-): Promise<string[]> {
+): Promise<Markets> {
   const [funds, bitcoin, rates] = await Promise.allSettled([
-    fundLines(config, fetchFn, now),
-    bitcoinLine(config, fetchFn, now),
-    rateLines(fetchFn),
+    fundQuotes(config, fetchFn, now),
+    bitcoinQuote(config, fetchFn, now),
+    rateQuotes(fetchFn),
   ]);
-  return [
-    ...(funds.status === 'fulfilled' ? funds.value : ['US fund prices could not be fetched.']),
-    ...(rates.status === 'fulfilled' ? rates.value : ['ECB exchange rates could not be fetched.']),
+  const quotes: Quote[] = [
+    ...(funds.status === 'fulfilled'
+      ? funds.value
+      : [{ line: 'US fund prices could not be fetched.' }]),
+    ...(rates.status === 'fulfilled'
+      ? rates.value
+      : [{ line: 'ECB exchange rates could not be fetched.' }]),
     ...(bitcoin.status === 'fulfilled' ? bitcoin.value : []),
   ];
+  return {
+    lines: quotes.map((q) => q.line),
+    moves: quotes.flatMap((q) => (q.move ? [q.move] : [])),
+  };
 }

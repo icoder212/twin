@@ -14,7 +14,8 @@ const config: Config = {
   ...baseConfig,
   RESEND_API_KEY: 're_test_key_0123456789',
   FRED_API_KEY: 'a'.repeat(32),
-  ALPACA_KEY_ID: 'alpaca-key-0123456789',
+  // Paper-trading keys start with PK, so company names come from Alpaca's paper API.
+  ALPACA_KEY_ID: 'PKTEST0123456789',
   ALPACA_SECRET_KEY: 'alpaca-secret-0123456789',
 };
 
@@ -26,13 +27,55 @@ const ECB_CSV = [
   'EXR.D.USD.EUR.SP00.A,D,USD,EUR,SP00,A,2026-12-16,1.1,"US dollar/Euro, daily"',
 ].join('\n');
 
-/** Fake Alpaca, ECB, FRED, Resend and Meta, recording what was sent. */
-function fakeNetwork(options: { alpacaDown?: boolean } = {}) {
+const BBC_WORLD = `<rss><channel>
+<item><title>Ukraine and Russia trade drone attacks on energy sites</title><link>https://www.bbc.com/news/articles/a1</link><description><![CDATA[Both sides reported strikes overnight.]]></description><pubDate>Wed, 16 Dec 2026 21:00:00 GMT</pubDate></item>
+<item><title>A story from last week</title><link>https://www.bbc.com/news/articles/a0</link><pubDate>Wed, 09 Dec 2026 21:00:00 GMT</pubDate></item>
+</channel></rss>`;
+
+/** Fake Alpaca, ECB, FRED, BBC, Claude, Resend and Meta, recording what was asked and sent. */
+function fakeNetwork(
+  options: { alpacaDown?: boolean; claude?: unknown; fredUpdated?: string } = {},
+) {
   const emails: Array<{ to: string[]; subject: string; text: string }> = [];
+  const claudeRequests: Array<Record<string, unknown>> = [];
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.hostname === 'data.alpaca.markets') {
       if (options.alpacaDown) return new Response('Unavailable', { status: 503 });
+      if (url.pathname === '/v1beta1/news') {
+        return Response.json({
+          news: [
+            {
+              headline: 'Oil falls as OPEC+ keeps output unchanged',
+              summary: '',
+              created_at: '2026-12-16T15:00:00Z',
+              symbols: ['USO'],
+            },
+            {
+              headline: 'Analyst Raises Price Target On Gold Miner',
+              created_at: '2026-12-16T14:00:00Z',
+              symbols: ['GLD'],
+            },
+          ],
+          next_page_token: null,
+        });
+      }
+      if (url.pathname === '/v1beta1/screener/stocks/movers') {
+        return Response.json({
+          gainers: [
+            { symbol: 'BEATW', percent_change: 195, price: 0.0118 },
+            { symbol: 'FCUV', percent_change: 136, price: 7.08 },
+            { symbol: 'SBC', percent_change: 37.64, price: 7.35 },
+            { symbol: 'CALM', percent_change: 0.5, price: 50 },
+          ],
+          losers: [
+            { symbol: 'ZYN', percent_change: -45.56, price: 9.13 },
+            { symbol: 'RMIX', percent_change: -37.44, price: 5.08 },
+            { symbol: 'NPCE', percent_change: -37.1, price: 7.56 },
+            { symbol: 'OGEN', percent_change: -42.59, price: 0.201 },
+          ],
+        });
+      }
       if (url.pathname === '/v2/stocks/bars') {
         expect(url.searchParams.get('feed')).toBe('sip');
         return Response.json({
@@ -57,8 +100,44 @@ function fakeNetwork(options: { alpacaDown?: boolean } = {}) {
         },
       });
     }
+    if (url.hostname === 'paper-api.alpaca.markets') {
+      const symbol = url.pathname.split('/').pop() ?? '';
+      if (symbol === 'NPCE') return Response.json({ message: 'not found' }, { status: 404 });
+      return Response.json({ symbol, name: `${symbol} Holdings Inc. Class A Common Stock` });
+    }
     if (url.hostname === 'data-api.ecb.europa.eu') return new Response(ECB_CSV);
-    if (url.hostname === 'api.stlouisfed.org') return Response.json({ release_dates: [] });
+    if (url.hostname === 'feeds.bbci.co.uk') {
+      return new Response(
+        url.pathname === '/news/world/rss.xml' ? BBC_WORLD : '<rss><channel></channel></rss>',
+      );
+    }
+    if (url.hostname === 'api.stlouisfed.org') {
+      if (url.pathname.endsWith('/release/dates')) return Response.json({ release_dates: [] });
+      if (url.pathname.endsWith('/series')) {
+        return Response.json({
+          seriess: [{ last_updated: options.fredUpdated ?? '2026-12-16 07:45:00-06' }],
+        });
+      }
+      return Response.json({
+        observations: [
+          { date: '2026-12-12', value: '231000' },
+          { date: '2026-12-05', value: '224000' },
+        ],
+      });
+    }
+    if (url.hostname === 'api.anthropic.com') {
+      claudeRequests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Response.json({
+        id: 'msg_test',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-haiku-5-5',
+        content: [{ type: 'text', text: JSON.stringify(options.claude) }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage: { input_tokens: 900, output_tokens: 200 },
+      });
+    }
     if (url.hostname === 'api.resend.com') {
       emails.push(JSON.parse(String(init?.body)) as (typeof emails)[number]);
       return Response.json({ id: `email-${emails.length}` });
@@ -68,18 +147,29 @@ function fakeNetwork(options: { alpacaDown?: boolean } = {}) {
     }
     throw new Error(`Unexpected request to ${url.href}`);
   }) as typeof fetch;
-  return { emails, fetch: fetchFn };
+  return { emails, claudeRequests, fetch: fetchFn };
 }
 
 describe('the morning brief', () => {
   let store: ReturnType<typeof memoryStore>;
   let net: ReturnType<typeof fakeNetwork>;
-  const deps = (now = NOW) => ({ config, store, fetch: net.fetch, now });
+  const deps = (now = NOW, withConfig = config) => ({
+    config: withConfig,
+    store,
+    fetch: net.fetch,
+    now,
+  });
 
   beforeEach(async () => {
     store = memoryStore();
     net = fakeNetwork();
     await store.upsertReleases([
+      {
+        key: 'jobless-claims|2026-12-10',
+        event: 'jobless-claims',
+        releaseDate: '2026-12-10',
+        at: Date.parse('2026-12-10T13:30:00Z'),
+      },
       {
         key: 'jobless-claims|2026-12-17',
         event: 'jobless-claims',
@@ -118,7 +208,9 @@ describe('the morning brief', () => {
         ],
       ],
     ]);
-    expect(summary).toMatch(/^3 scheduled today, 2 of high severity: 12:00 UK Bank of England/);
+    expect(summary).toBe(
+      'Today: 12:00 UK Bank of England interest rate decision (high), 13:15 Euro area ECB interest rate decision (high), 13:30 US Weekly jobless claims (medium). Last close: S&P 500 up 1.0%, GBP/USD 1.3415.',
+    );
     expect(text).toContain('- 13:30 US Weekly jobless claims, medium severity.');
     expect(text).toContain('high for central bank decisions and the major US releases (CPI,');
     const checks = runAdviceChecks(text, {
@@ -136,6 +228,84 @@ describe('the morning brief', () => {
       'No US releases and no Fed, Bank of England or ECB decisions today.',
       'Next high-severity event: Wednesday 27 January, 19:00 US Fed interest rate decision (FOMC).',
     ]);
+  });
+
+  it('gives the figures yesterday’s US releases published', async () => {
+    const friday = Date.parse('2026-12-11T08:00:00Z');
+    const { briefing } = await buildBrief(deps(friday), ['results']);
+    expect(briefing.sections[0]?.heading).toBe('Yesterday’s results');
+    expect(briefing.sections[0]?.items).toEqual([
+      expect.stringMatching(/^13:30 US Weekly jobless claims for .+: initial claims 231,000\.$/),
+    ]);
+
+    net = fakeNetwork({ fredUpdated: '2026-12-09 07:45:00-06' });
+    const notYet = await buildBrief(deps(friday), ['results']);
+    expect(notYet.briefing.sections[0]?.items).toEqual([
+      '13:30 US Weekly jobless claims: the figures are not on FRED yet.',
+    ]);
+
+    const monday = Date.parse('2026-12-14T08:00:00Z');
+    const quiet = await buildBrief(deps(monday), ['results']);
+    expect(quiet.briefing.sections[0]?.items).toEqual(['No scheduled US releases yesterday.']);
+  });
+
+  it('lists yesterday’s headlines by topic as published when Claude is not set up', async () => {
+    const { briefing } = await buildBrief(deps(), ['headlines']);
+    expect(briefing.sections[0]?.items).toEqual([
+      'War and conflict: Ukraine and Russia trade drone attacks on energy sites (BBC News)',
+      'Oil: Oil falls as OPEC+ keeps output unchanged (Benzinga)',
+    ]);
+  });
+
+  it('keeps only the lines Claude wrote that cite real stories and give no forecasts', async () => {
+    const withClaude = { ...config, ANTHROPIC_API_KEY: 'sk-ant-test-0123456789' };
+    net = fakeNetwork({
+      claude: {
+        us: [],
+        war: [
+          { text: 'Ukraine and Russia traded drone attacks on energy sites. [1]', sources: [1] },
+          { text: 'A story nobody gave.', sources: [9] },
+        ],
+        oil: [
+          { text: 'Oil fell after OPEC+ kept output unchanged.', sources: [2] },
+          { text: 'Oil will rise next week.', sources: [2] },
+        ],
+        gold: [],
+      },
+    });
+    const day = '2026-12-17';
+    const { briefing } = await buildBrief(deps(NOW, withClaude), ['headlines']);
+    expect(briefing.sections[0]?.items).toEqual([
+      'US: nothing in the sources in the last 24 hours.',
+      'War and conflict: Ukraine and Russia traded drone attacks on energy sites. (BBC News)',
+      'Oil: Oil fell after OPEC+ kept output unchanged. (Benzinga)',
+      'Gold: nothing in the sources in the last 24 hours.',
+    ]);
+    // Rated and dated stories never reach Claude; the stories are numbered newest first.
+    const prompt = JSON.stringify(net.claudeRequests[0]?.messages);
+    expect(prompt).toContain('1. [BBC News] Ukraine and Russia trade drone attacks');
+    expect(prompt).not.toContain('Price Target');
+    expect(prompt).not.toContain('last week');
+
+    // The same day's brief reuses the digest rather than asking Claude again.
+    await buildBrief(deps(minutes(30), withClaude), ['headlines']);
+    expect(net.claudeRequests).toHaveLength(1);
+    expect(JSON.parse(store.settings.get('brief-digest') ?? '{}')).toMatchObject({ day });
+  });
+
+  it('lists the biggest moves either way among US stocks of $5 or more', async () => {
+    const { briefing, summary } = await buildBrief(deps(), ['movers']);
+    expect(briefing.sections[0]?.heading).toBe('Biggest moves at the last close');
+    expect(briefing.sections[0]?.items).toEqual([
+      'For comparison, the S&P 500 (SPY) moved up 1.0%.',
+      'FCUV (FCUV Holdings Inc.): 7.08, up 136.0%',
+      'ZYN (ZYN Holdings Inc.): 9.13, down 45.6%',
+      'SBC (SBC Holdings Inc.): 7.35, up 37.6%',
+      'RMIX (RMIX Holdings Inc.): 5.08, down 37.4%',
+      // A name that cannot be looked up leaves the symbol on its own.
+      'NPCE: 7.56, down 37.1%',
+    ]);
+    expect(summary).toBe('Biggest moves: FCUV up 136.0%, ZYN down 45.6%, SBC up 37.6%.');
   });
 
   it('counts today’s US session once it has closed', async () => {
@@ -187,6 +357,31 @@ describe('the morning brief', () => {
     expect(await runBrief(deps(saturday))).toEqual({ status: 'ok', sent: false });
   });
 
+  it('sends the summary to WhatsApp when it is chosen', async () => {
+    const whatsapp: string[][] = [];
+    const recording = net.fetch;
+    net.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).hostname === 'graph.facebook.com') {
+        const body = JSON.parse(String(init?.body)) as {
+          template: { components: Array<{ parameters: Array<{ text: string }> }> };
+        };
+        whatsapp.push(body.template.components[0]!.parameters.map((p) => p.text));
+      }
+      return recording(input, init);
+    }) as typeof fetch;
+    await saveBrief(deps(), {
+      enabled: true,
+      time: '08:00',
+      days: [0, 1, 2, 3, 4, 5, 6],
+      channels: ['in-app', 'email', 'whatsapp'],
+      sections: ['markets', 'releases'],
+    });
+    expect(await runBrief(deps())).toEqual({ status: 'ok', sent: true });
+    expect(whatsapp).toEqual([
+      ['your morning brief', expect.stringMatching(/^Today: 12:00 UK Bank of England/)],
+    ]);
+  });
+
   it('keeps only the sections and channels this server has', async () => {
     const saved = await saveBrief(deps(), {
       enabled: true,
@@ -195,7 +390,11 @@ describe('the morning brief', () => {
       channels: ['email', 'sms'],
       sections: ['limits', 'markets'],
     });
-    expect(saved).toMatchObject({ days: [1, 5], channels: ['in-app', 'email'], sections: ['markets'] });
+    expect(saved).toMatchObject({
+      days: [1, 5],
+      channels: ['in-app', 'email'],
+      sections: ['markets'],
+    });
     expect(
       await saveBrief(deps(), {
         enabled: true,
@@ -244,7 +443,8 @@ describe('the briefings API', () => {
       kind: 'morning-brief',
       enabled: false,
       time: '08:00',
-      offered: ['markets', 'releases', 'news'],
+      days: [0, 1, 2, 3, 4, 5, 6],
+      offered: ['markets', 'movers', 'headlines', 'results', 'releases', 'news'],
     });
 
     const body = {

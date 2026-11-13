@@ -337,6 +337,9 @@ export type BriefingKind = z.infer<typeof briefingKindSchema>;
 
 export const BRIEFING_SECTIONS = [
   'markets',
+  'movers',
+  'headlines',
+  'results',
   'releases',
   'limits',
   'action-items',
@@ -357,7 +360,18 @@ export const BRIEFING_META: Record<
   'morning-brief': {
     title: 'Morning brief',
     description: 'Your day on one page, before the session opens.',
-    sections: ['markets', 'releases', 'limits', 'action-items', 'approvals', 'news', 'sources'],
+    sections: [
+      'markets',
+      'movers',
+      'headlines',
+      'results',
+      'releases',
+      'limits',
+      'action-items',
+      'approvals',
+      'news',
+      'sources',
+    ],
   },
   'end-of-day': {
     title: 'End-of-day recap',
@@ -368,6 +382,9 @@ export const BRIEFING_META: Record<
 
 export const BRIEFING_SECTION_LABELS: Record<BriefingSection, string> = {
   markets: 'Markets at the last close',
+  movers: 'Biggest moves at the last close',
+  headlines: 'Yesterday in the news',
+  results: 'Yesterday’s results',
   releases: 'Today’s releases',
   limits: 'Room under your limits',
   'action-items': 'Open action items',
