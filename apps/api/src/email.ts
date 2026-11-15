@@ -7,10 +7,10 @@ export class EmailError extends Error {
   }
 }
 
-/** Sends a plain-text email through Resend and returns its id. */
+/** Sends an email through Resend, plain text with an optional HTML version, and returns its id. */
 export async function sendEmail(
   config: Config,
-  message: { to: string; subject: string; text: string },
+  message: { to: string; subject: string; text: string; html?: string },
   fetchFn: typeof fetch,
 ): Promise<string> {
   if (!config.RESEND_API_KEY) throw new EmailError('Email is not set up yet');
@@ -25,6 +25,7 @@ export async function sendEmail(
       to: [message.to],
       subject: message.subject,
       text: message.text,
+      ...(message.html ? { html: message.html } : {}),
     }),
   });
   const data = (await response.json().catch(() => null)) as {

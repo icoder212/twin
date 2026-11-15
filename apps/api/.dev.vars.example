@@ -10,7 +10,7 @@ GOOGLE_CLIENT_SECRET=
 # 32 random bytes, base64. Generate with: openssl rand -base64 32
 TOKEN_KEY=
 
-# Meta for Developers > your app > WhatsApp > API Setup.
+# Meta for Developers > your app > WhatsApp > API Setup. Needed when WHATSAPP_PROVIDER is meta.
 WHATSAPP_PHONE_NUMBER_ID=
 # A permanent system-user token with whatsapp_business_messaging.
 WHATSAPP_TOKEN=
@@ -20,6 +20,10 @@ WHATSAPP_APP_SECRET=
 WHATSAPP_VERIFY_TOKEN=
 # Your WhatsApp number in international format, digits only, e.g. 447700900123.
 WHATSAPP_TO=
+
+# Twilio, when WHATSAPP_PROVIDER is twilio in wrangler.jsonc: Account Info on the console home.
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
 
 # Resend > API Keys > a key with Sending access. Optional: without it, email is reported as not set up.
 RESEND_API_KEY=

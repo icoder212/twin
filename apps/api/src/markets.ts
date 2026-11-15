@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { dayKeyIn } from '@twindesk/core';
+import type { BriefItem } from './brief-email';
 import type { Config } from './config';
 import { zonedInstant } from './economic';
 
@@ -43,13 +44,25 @@ interface Close {
 
 /** Lines for the brief, and the main moves in a few words for its summary. */
 export interface Markets {
-  lines: string[];
+  lines: BriefItem[];
   moves: string[];
 }
 
 interface Quote {
   line: string;
   move?: string;
+  /** The change, when it is large enough to show in bold. */
+  strong?: string;
+}
+
+/**
+ * Moves at least this large, in per cent, are shown in bold: currencies usually move less than the
+ * funds, and Bitcoin more.
+ */
+export const BIG_MOVE = { fund: 1, currency: 0.5, crypto: 3 } as const;
+
+function isBig(last: number, previous: number, threshold: number): boolean {
+  return Math.abs((last - previous) / previous) * 100 >= threshold;
 }
 
 /** "up 0.4%", "down 1.2%" or "unchanged", to one decimal place. */
@@ -119,6 +132,7 @@ async function fundQuotes(config: Config, fetchFn: typeof fetch, now: number): P
       {
         line: `${label}: ${amount(last.value, 2)}, ${moved} on ${weekday(last.day)}`,
         ...(short ? { move: `${short} ${moved}` } : {}),
+        ...(isBig(last.value, previous.value, BIG_MOVE.fund) ? { strong: moved } : {}),
       },
     ];
   });
@@ -134,9 +148,11 @@ async function bitcoinQuote(config: Config, fetchFn: typeof fetch, now: number):
   const pair = lastTwo(closes, new Date(now).toISOString().slice(0, 10));
   if (!pair) return [];
   const [previous, last] = pair;
+  const moved = change(last.value, previous.value);
   return [
     {
-      line: `Bitcoin (BTC/USD): ${amount(last.value, 0)}, ${change(last.value, previous.value)} on ${weekday(last.day)} (UTC day)`,
+      line: `Bitcoin (BTC/USD): ${amount(last.value, 0)}, ${moved} on ${weekday(last.day)} (UTC day)`,
+      ...(isBig(last.value, previous.value, BIG_MOVE.crypto) ? { strong: moved } : {}),
     },
   ];
 }
@@ -171,10 +187,14 @@ async function rateQuotes(fetchFn: typeof fetch): Promise<Quote[]> {
     ['EUR/USD', (d) => usd.get(d)!],
     ['EUR/GBP', (d) => gbp.get(d)!],
   ];
-  return pairs.map(([name, rate]) => ({
-    line: `${name}: ${amount(rate(last), 4)}, ${change(rate(last), rate(previous))} (ECB reference rate, ${weekday(last)})`,
-    ...(name === 'GBP/USD' ? { move: `GBP/USD ${amount(rate(last), 4)}` } : {}),
-  }));
+  return pairs.map(([name, rate]) => {
+    const moved = change(rate(last), rate(previous));
+    return {
+      line: `${name}: ${amount(rate(last), 4)}, ${moved} (ECB reference rate, ${weekday(last)})`,
+      ...(name === 'GBP/USD' ? { move: `GBP/USD ${amount(rate(last), 4)}` } : {}),
+      ...(isBig(rate(last), rate(previous), BIG_MOVE.currency) ? { strong: moved } : {}),
+    };
+  });
 }
 
 const MOVERS = 'https://data.alpaca.markets/v1beta1/screener/stocks/movers?top=50';
@@ -243,9 +263,11 @@ export async function movers(config: Config, fetchFn: typeof fetch): Promise<Mar
   const names = await Promise.all(top.map((m) => assetName(config, m.symbol, fetchFn)));
   const moved = (pct: number) => `${pct > 0 ? 'up' : 'down'} ${Math.abs(pct).toFixed(1)}%`;
   return {
+    // Each of these moved 1% or more, so every change is shown in bold.
     lines: top.map((m, i) => {
       const name = names[i] ? ` (${names[i]})` : '';
-      return `${m.symbol}${name}: ${amount(m.price, 2)}, ${moved(m.percent_change)}`;
+      const by = moved(m.percent_change);
+      return { text: `${m.symbol}${name}: ${amount(m.price, 2)}, ${by}`, strong: by };
     }),
     moves: top.map((m) => `${m.symbol} ${moved(m.percent_change)}`),
   };
@@ -275,7 +297,7 @@ export async function markets(
     ...(bitcoin.status === 'fulfilled' ? bitcoin.value : []),
   ];
   return {
-    lines: quotes.map((q) => q.line),
+    lines: quotes.map((q) => ({ text: q.line, ...(q.strong ? { strong: q.strong } : {}) })),
     moves: quotes.flatMap((q) => (q.move ? [q.move] : [])),
   };
 }

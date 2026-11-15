@@ -76,4 +76,10 @@ export default tseslint.config(
     rules: { 'no-console': 'off' },
   },
   { files: ['**/*.test.{ts,tsx}'], rules: { 'no-script-url': 'off' } },
+  {
+    // Local developer scripts run in Node and report to the terminal.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: globals.node },
+    rules: { 'no-console': 'off' },
+  },
 );

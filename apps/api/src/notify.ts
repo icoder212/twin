@@ -17,7 +17,7 @@ import type { Config } from './config';
 import { sendEmail } from './email';
 import { loadPreferences, serverContacts, serverPolicy } from './settings';
 import type { Store } from './store';
-import { sendWhatsApp, templateMessage, type WhatsAppTemplate } from './whatsapp';
+import { deliverWhatsApp, type WhatsAppTemplate } from './whatsapp';
 
 export interface NotifyDeps {
   config: Config;
@@ -38,6 +38,8 @@ export interface NotifyInput {
   scheduled?: boolean;
   /** The whole message for email when the body is a summary, such as a briefing. */
   emailText?: string;
+  /** An HTML version of that email, given the footer every email carries. */
+  emailHtml?: (footer: string) => string;
   /** The approved WhatsApp template to use. Alerts without one are skipped on WhatsApp. */
   whatsapp?: WhatsAppTemplate;
 }
@@ -101,8 +103,8 @@ export async function notify(deps: NotifyDeps, input: NotifyInput): Promise<Noti
         });
       } else {
         try {
-          const message = templateMessage(config, input.whatsapp);
-          outbound.push({ id: await sendWhatsApp(config, message, fetch), channel: 'whatsapp' });
+          const id = await deliverWhatsApp(config, input.whatsapp, fetch);
+          outbound.push({ id, channel: 'whatsapp' });
         } catch (error) {
           Object.assign(delivery, { status: 'failed', note: failure(error) });
         }
@@ -114,14 +116,16 @@ export async function notify(deps: NotifyDeps, input: NotifyInput): Promise<Noti
           privacy: preferences.privacy,
         });
         // Minimal privacy keeps the content out of email, so the full text goes only without it.
-        const body =
-          input.emailText && preferences.privacy !== 'minimal' ? input.emailText : rendered.body;
+        const full = preferences.privacy !== 'minimal';
+        const body = input.emailText && full ? input.emailText : rendered.body;
+        const html = input.emailHtml && full ? input.emailHtml(rendered.footer) : undefined;
         const id = await sendEmail(
           config,
           {
             to: config.EMAIL_TO ?? config.OWNER_GOOGLE_ACCOUNT,
             subject: rendered.subject ?? rendered.title,
             text: `${body}\n\n${rendered.footer}`,
+            ...(html ? { html } : {}),
           },
           fetch,
         );

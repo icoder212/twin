@@ -11,6 +11,7 @@ export const baseConfig: Config = {
   GOOGLE_CLIENT_ID: '123-abc.apps.googleusercontent.com',
   GOOGLE_CLIENT_SECRET: 'google-client-secret',
   TOKEN_KEY: KEY,
+  WHATSAPP_PROVIDER: 'meta',
   WHATSAPP_PHONE_NUMBER_ID: '1234567890',
   WHATSAPP_TOKEN: 'whatsapp-token-0123456789',
   WHATSAPP_APP_SECRET: 'app-secret-0123456789',
@@ -33,6 +34,7 @@ export const baseConfig: Config = {
   ALPACA_KEY_ID: undefined,
   ALPACA_SECRET_KEY: undefined,
   FRED_API_KEY: undefined,
+  TWILIO_MIN_BALANCE: undefined,
 };
 
 export function memoryStore() {

@@ -1,0 +1,61 @@
+name: Deploy server
+
+# Vercel deploys the web app; this deploys the Cloudflare Worker that sends reminders, briefs and
+# email. It runs when server code changes on main, or by hand from the Actions tab.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'packages/core/**'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
+
+# Least privilege: the workflow reads the repository; Cloudflare access comes from two secrets.
+permissions:
+  contents: read
+
+# One deploy at a time, never cancelled halfway.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Test and deploy the Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # Lifecycle scripts are disabled so no dependency runs code during install.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx tsc --noEmit -p apps/api
+      - run: npx vitest run --project api --project core
+
+      - name: Check the Cloudflare secrets are set
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in Settings > Secrets and variables > Actions." >&2
+            exit 1
+          fi
+
+      - name: Apply database migrations
+        working-directory: apps/api
+        run: npx --yes wrangler@4.152.0 d1 migrations apply desk-twin --remote
+
+      - name: Deploy
+        working-directory: apps/api
+        run: npx --yes wrangler@4.152.0 deploy

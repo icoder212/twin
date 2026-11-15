@@ -138,6 +138,55 @@ For economic release figures, also create a **Utility** template named `release_
 Sample values: `{{1}}` "US CPI for October 2026", `{{2}}` "m/m +0.3%, y/y 2.9%, core y/y
 3.0%". Until it is approved, figures reach the app (and email) and WhatsApp shows as failed.
 
+## WhatsApp through Twilio
+
+`WHATSAPP_PROVIDER` in `wrangler.jsonc` picks the sender: `meta` (the Cloud API, above) or
+`twilio`. With Twilio:
+
+- Secrets: `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN`.
+- Settings in `wrangler.jsonc`: `TWILIO_WHATSAPP_FROM`, the two content template SIDs and
+  `TWILIO_MIN_BALANCE`. WhatsApp stops sending when the balance reaches that floor, which caps
+  spending. `TWILIO_STATUS_CALLBACK_URL` turns on signed delivery receipts at `/twilio/status`.
+- `npm run twilio:templates` (from the repository root) creates the two templates once and
+  prints their SIDs. The wording is "Reminder: {{1}} starts at {{2}}. Sent by Desk Twin." and
+  "Desk Twin update on {{1}}: {{2}}. Full details are in the app."
+- Twilio's sandbox number delivers only within 24 hours of a message from your phone, and
+  WhatsApp cannot approve templates for it. For alerts that arrive every day:
+  1. Register your own WhatsApp sender in Twilio (Messaging > Senders > WhatsApp senders).
+  2. Run `npm run twilio:templates -- --submit` to ask WhatsApp to approve the templates.
+  3. Set `TWILIO_WHATSAPP_FROM` to the new number.
+
+While the sender is the sandbox number, a reminder goes out each evening at `SANDBOX_REMINDER_AT`
+(22:30) on WhatsApp and email, asking you to reply "hi" so the next day's messages arrive. It
+stops by itself once `TWILIO_WHATSAPP_FROM` is your own number.
+
+A missing WhatsApp setting fails WhatsApp messages only, with the reason in the delivery log.
+Email, briefs and the app carry on.
+
+## Email to your own domain
+
+Resend's test sender (`onboarding@resend.dev`) delivers only to the address the Resend account
+was opened with. To send anywhere else, such as `hello@yourdomain.com`:
+
+1. In Resend, open Domains, add the domain and add the DNS records it lists where the domain's
+   DNS is managed. Wait for the domain to show Verified.
+2. Set `RESEND_FROM` in `wrangler.jsonc` to an address on that domain, e.g.
+   `Desk Twin <alerts@yourdomain.com>`.
+3. Set the recipient: `npx wrangler@4.152.0 secret put EMAIL_TO`.
+
+## Deploying
+
+Vercel deploys the web app. `.github/workflows/deploy-api.yml` deploys this Worker on every push
+to `main` that changes server code. It tests first, then applies database migrations and deploys.
+It needs two repository secrets (Settings > Secrets and variables > Actions):
+
+- `CLOUDFLARE_API_TOKEN`: create it in Cloudflare (My Profile > API Tokens) from the "Edit
+  Cloudflare Workers" template, adding D1 Edit.
+- `CLOUDFLARE_ACCOUNT_ID`: shown by `npx wrangler@4.152.0 whoami`.
+
+Secrets are not in Git. Set them once with `npx wrangler@4.152.0 secret put <NAME>`, or all at
+once with `secret bulk .dev.vars`.
+
 ## Local run
 
 ```sh

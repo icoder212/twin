@@ -68,16 +68,17 @@ at the real API contains none of them.
 
 ## Scripts
 
-| Command              | What it does                                                   |
-| -------------------- | -------------------------------------------------------------- |
-| `npm run dev`        | Vite dev server with security headers (CSP off for hot reload) |
-| `npm run build`      | Type-check and build `apps/web/dist` with the CSP meta tag     |
-| `npm run preview`    | Serve the build with the full production CSP and headers       |
-| `npm run verify`     | Type-check, lint, test and build: what CI runs                 |
-| `npm test`           | Vitest: core (node) and web (jsdom) projects                   |
-| `npm run lint`       | ESLint with security and accessibility rules, zero warnings    |
-| `npm run format`     | Prettier, with Tailwind class sorting                          |
-| `npm run audit:deps` | `npm audit` of production dependencies                         |
+| Command                 | What it does                                                          |
+| ----------------------- | --------------------------------------------------------------------- |
+| `npm run dev`           | Vite dev server with security headers (CSP off for hot reload)        |
+| `npm run build`         | Type-check and build `apps/web/dist` with the CSP meta tag            |
+| `npm run preview`       | Serve the build with the full production CSP and headers              |
+| `npm run verify`        | Type-check, lint, test and build: what CI runs                        |
+| `npm test`              | Vitest: core (node) and web (jsdom) projects                          |
+| `npm run lint`          | ESLint with security and accessibility rules, zero warnings           |
+| `npm run format`        | Prettier, with Tailwind class sorting                                 |
+| `npm run audit:deps`    | `npm audit` of production dependencies                                |
+| `npm run whatsapp:test` | Shows, or with `-- --send` sends, a test alert to one WhatsApp number |
 
 ## Repository layout
 

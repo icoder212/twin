@@ -9,9 +9,10 @@ import { runEconomic } from './economic';
 import { log, logError } from './log';
 import { runNews } from './news';
 import { runReminders } from './reminders';
+import { runSandboxReminder } from './sandbox';
 import { beginGoogle, completeGoogle } from './signin';
 import { d1Store, type Store } from './store';
-import { statusUpdates, verifySignature } from './whatsapp';
+import { statusUpdates, twilioStatus, verifySignature, verifyTwilioSignature } from './whatsapp';
 import type { ScheduledController } from './worker-types';
 
 const MAX_WEBHOOK_BYTES = 256 * 1024;
@@ -35,13 +36,49 @@ function verifyWebhook(config: Config, url: URL): Response {
   return text('Forbidden', 403);
 }
 
-/** Meta's message statuses, in the app's delivery terms. */
+/** Meta's and Twilio's message statuses, in the app's delivery terms. */
 const RECEIPT_STATUS: Record<string, DeliveryStatus> = {
   sent: 'delivered',
   delivered: 'delivered',
   read: 'read',
   failed: 'failed',
+  undelivered: 'failed',
 };
+
+/** Updates the WhatsApp delivery of the notification a provider message belongs to. */
+async function applyReceipt(store: Store, id: string, status: string): Promise<void> {
+  const next = RECEIPT_STATUS[status];
+  const notificationId = next ? await store.notificationForMessage(id) : null;
+  const stored = notificationId ? await store.getNotification(notificationId) : null;
+  if (!next || !stored) return;
+  const deliveries = stored.event.deliveries.map((d) =>
+    d.channel === 'whatsapp' && d.status !== 'read' ? { ...d, status: next } : d,
+  );
+  await store.saveNotification({ ...stored.event, deliveries }, stored.read);
+}
+
+/** Twilio's delivery receipts. Only bodies signed with the account's auth token are read. */
+async function receiveTwilioStatus(
+  config: Config,
+  store: Store,
+  request: Request,
+): Promise<Response> {
+  const url = config.TWILIO_STATUS_CALLBACK_URL;
+  if (config.WHATSAPP_PROVIDER !== 'twilio' || !url || !config.TWILIO_AUTH_TOKEN) {
+    return text('Not found', 404);
+  }
+  const body = await request.text();
+  if (body.length > MAX_WEBHOOK_BYTES) return text('Too large', 413);
+  const form = new URLSearchParams(body);
+  // Checked against the configured URL, the exact one Twilio was told to call.
+  const signature = request.headers.get('X-Twilio-Signature');
+  if (!(await verifyTwilioSignature(config.TWILIO_AUTH_TOKEN, url, form, signature))) {
+    return text('Forbidden', 403);
+  }
+  const receipt = twilioStatus(form);
+  if (receipt) await applyReceipt(store, receipt.id, receipt.status);
+  return text('ok');
+}
 
 /** Delivery receipts update the notification they belong to. Only signed bodies are read. */
 async function receiveWebhook(config: Config, store: Store, request: Request): Promise<Response> {
@@ -58,16 +95,7 @@ async function receiveWebhook(config: Config, store: Store, request: Request): P
   } catch {
     return text('Bad request', 400);
   }
-  for (const { id, status } of statusUpdates(payload)) {
-    const next = RECEIPT_STATUS[status];
-    const notificationId = next ? await store.notificationForMessage(id) : null;
-    const stored = notificationId ? await store.getNotification(notificationId) : null;
-    if (!next || !stored) continue;
-    const deliveries = stored.event.deliveries.map((d) =>
-      d.channel === 'whatsapp' && d.status !== 'read' ? { ...d, status: next } : d,
-    );
-    await store.saveNotification({ ...stored.event, deliveries }, stored.read);
-  }
+  for (const { id, status } of statusUpdates(payload)) await applyReceipt(store, id, status);
   return text('ok');
 }
 
@@ -115,6 +143,8 @@ export default {
           return verifyWebhook(config, url);
         case 'POST /whatsapp/webhook':
           return await receiveWebhook(config, store, request);
+        case 'POST /twilio/status':
+          return await receiveTwilioStatus(config, store, request);
         default:
           return text('Not found', 404);
       }
@@ -171,6 +201,17 @@ export default {
       if (outcome.status === 'ok' && (outcome.sent || outcome.error)) log('news', outcome);
     } catch (error) {
       logError('news', error);
+    }
+    try {
+      const outcome = await runSandboxReminder({
+        config: readConfig(env),
+        store: d1Store(env.DB),
+        fetch: fetchFn,
+        now,
+      });
+      if (outcome.status === 'ok' && outcome.sent) log('sandbox-reminder', outcome);
+    } catch (error) {
+      logError('sandbox-reminder', error);
     }
   },
 };

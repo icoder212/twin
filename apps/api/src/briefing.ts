@@ -14,6 +14,7 @@ import {
   type NotificationEvent,
 } from '@twindesk/core';
 import type { z } from 'zod';
+import { briefHtml, type BriefItem } from './brief-email';
 import {
   BOE_DECISION_DAYS,
   BOE_TIME,
@@ -24,7 +25,7 @@ import {
 } from './central-banks';
 import { yesterdayDigest } from './digest';
 import { fetchResult, refreshSchedule, zonedInstant } from './economic';
-import { markets, MIN_MOVER_PRICE, movers, type Markets } from './markets';
+import { BIG_MOVE, markets, MIN_MOVER_PRICE, movers, type Markets } from './markets';
 import { loadNewsWatch, loadRecent } from './news';
 import { localTime, notify, type NotifyDeps } from './notify';
 import { serverPolicy } from './settings';
@@ -217,6 +218,30 @@ async function newsItems(deps: NotifyDeps): Promise<string[]> {
     : ['No headlines on what you follow in the last 24 hours.'];
 }
 
+/** The notification body's limit, and WhatsApp's for a template field. */
+const SUMMARY_LENGTH = 400;
+const WHATSAPP_LENGTH = 200;
+
+interface SummaryPart {
+  lead: string;
+  items: string[];
+}
+
+/** As many whole items as fit in `max` characters, part by part, so nothing is cut mid-word. */
+export function fitted(parts: SummaryPart[], max: number): string {
+  let out = '';
+  for (const { lead, items } of parts) {
+    const taken: string[] = [];
+    const sentence = (list: string[]) => `${out}${out ? ' ' : ''}${lead}${list.join(', ')}.`;
+    for (const item of items) {
+      if (sentence([...taken, item]).length > max) break;
+      taken.push(item);
+    }
+    if (taken.length) out = sentence(taken);
+  }
+  return out;
+}
+
 const MAJOR_WORDS = MAJOR_US_RELEASES.filter((e) => e !== 'fomc')
   .map((e) => US_RELEASE_INFO[e].short.replace(/^US /, ''))
   .join(', ')
@@ -224,11 +249,23 @@ const MAJOR_WORDS = MAJOR_US_RELEASES.filter((e) => e !== 'fomc')
 
 export interface BuiltBrief {
   briefing: Briefing;
-  /** A few lines for the app and WhatsApp. */
+  /** A few lines for the app. */
   summary: string;
+  /** The same, shortened to whole items that fit a WhatsApp template field. */
+  short: string;
   /** The whole brief as plain text, for email. */
   text: string;
+  /** The same as HTML, with big moves and high-severity events in bold, given the email footer. */
+  emailHtml: (footer: string) => string;
 }
+
+/** "US: …" shows its topic in bold. */
+function topicItem(text: string): BriefItem {
+  const label = /^[^:]{1,24}:/.exec(text)?.[0];
+  return label ? { text, strong: label } : { text };
+}
+
+const plain = (list: string[]): BriefItem[] => list.map((text) => ({ text }));
 
 export async function buildBrief(
   deps: NotifyDeps,
@@ -247,7 +284,7 @@ export async function buildBrief(
       : noMarkets,
     wanted.includes('movers')
       ? movers(config, deps.fetch).catch((): Markets => ({
-          lines: ['The biggest moves could not be fetched.'],
+          lines: [{ text: 'The biggest moves could not be fetched.' }],
           moves: [],
         }))
       : noMarkets,
@@ -258,55 +295,64 @@ export async function buildBrief(
     wanted.includes('news') ? newsItems(deps) : [],
   ]);
 
-  const releaseItems = day.today.length
-    ? day.today.map((e) => `${time(e.at)} ${e.label}, ${severity(e)} severity.`)
-    : [
+  const releaseItems: BriefItem[] = day.today.length
+    ? day.today.map((e) => {
+        const text = `${time(e.at)} ${e.label}, ${severity(e)} severity.`;
+        return e.high ? { text, strong: text } : { text };
+      })
+    : plain([
         'No US releases and no Fed, Bank of England or ECB decisions today.',
         ...(day.next
           ? [
               `Next high-severity event: ${longDay(deps, day.next.at)}, ${time(day.next.at)} ${day.next.label}.`,
             ]
           : []),
-      ];
+      ]);
   const sp500 = market.moves.find((m) => m.startsWith('S&P 500 '));
-  const items: Record<string, string[]> = {
+  const items: Record<string, BriefItem[]> = {
     markets: market.lines,
     movers: [
-      ...(sp500 ? [`For comparison, the S&P 500 (SPY) moved ${sp500.slice(8)}.`] : []),
+      ...(sp500 ? plain([`For comparison, the S&P 500 (SPY) moved ${sp500.slice(8)}.`]) : []),
       ...(moved.lines.length
         ? moved.lines
-        : [`No US stock priced at $${MIN_MOVER_PRICE} or more moved 1% or more.`]),
+        : plain([`No US stock priced at $${MIN_MOVER_PRICE} or more moved 1% or more.`])),
     ],
-    headlines: headlines.length ? headlines : ['The news sources could not be read this morning.'],
-    results,
+    headlines: headlines.length
+      ? headlines.map(topicItem)
+      : plain(['The news sources could not be read this morning.']),
+    results: plain(results),
     releases: releaseItems,
-    news,
+    news: plain(news),
   };
   const title = `Morning brief, ${longDay(deps, now)}`;
+  const shown = wanted.map((id) => ({
+    id,
+    heading: BRIEFING_SECTION_LABELS[id],
+    items: (items[id] ?? [])
+      .slice(0, MAX_ITEMS)
+      .map((i) => ({ ...i, text: i.text.slice(0, MAX_ITEM_LENGTH) })),
+  }));
   const briefing: Briefing = {
     kind: 'morning-brief',
     title,
     generatedAt: new Date(now).toISOString(),
-    sections: wanted.map((id) => ({
-      id,
-      heading: BRIEFING_SECTION_LABELS[id],
-      items: (items[id] ?? []).slice(0, MAX_ITEMS).map((i) => i.slice(0, MAX_ITEM_LENGTH)),
-    })),
+    sections: shown.map((s) => ({ ...s, items: s.items.map((i) => i.text) })),
   };
 
-  const summary = [
-    wanted.includes('releases')
-      ? day.today.length
-        ? `Today: ${day.today.map((e) => `${time(e.at)} ${e.label} (${severity(e)})`).join(', ')}.`
-        : 'No scheduled releases or central bank decisions today.'
-      : '',
-    wanted.includes('markets') && market.moves.length
-      ? `Last close: ${market.moves.join(', ')}.`
-      : '',
-    moved.moves.length ? `Biggest moves: ${moved.moves.slice(0, 3).join(', ')}.` : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const parts: SummaryPart[] = [
+    ...(wanted.includes('releases')
+      ? [
+          day.today.length
+            ? {
+                lead: 'Today: ',
+                items: day.today.map((e) => `${time(e.at)} ${e.label} (${severity(e)})`),
+              }
+            : { lead: '', items: ['No scheduled releases or central bank decisions today'] },
+        ]
+      : []),
+    ...(wanted.includes('markets') ? [{ lead: 'Last close: ', items: market.moves }] : []),
+    { lead: 'Biggest moves: ', items: moved.moves.slice(0, 3) },
+  ];
 
   const notes = [
     ...(wanted.includes('releases')
@@ -338,7 +384,21 @@ export async function buildBrief(
     ...notes,
   ].join('\n');
 
-  return { briefing, summary: summary || title, text };
+  const legend =
+    wanted.includes('markets') || wanted.includes('movers') || wanted.includes('releases')
+      ? [
+          `Bold marks moves of ${BIG_MOVE.fund}% or more (${BIG_MOVE.currency}% for currencies, ${BIG_MOVE.crypto}% for Bitcoin), the biggest moves and high-severity events.`,
+        ]
+      : [];
+
+  return {
+    briefing,
+    summary: fitted(parts, SUMMARY_LENGTH) || title,
+    short: fitted(parts, WHATSAPP_LENGTH) || title,
+    text,
+    emailHtml: (footer) =>
+      briefHtml({ title, sections: shown, notes: [...legend, ...notes], footer }),
+  };
 }
 
 /** Sends a built brief on its own channels, quiet hours or not, as it was scheduled. */
@@ -356,7 +416,8 @@ async function deliverBrief(
     channels: schedule.channels,
     scheduled: true,
     emailText: built.text,
-    whatsapp: updateTemplate(deps.config, 'your morning brief', built.summary),
+    emailHtml: built.emailHtml,
+    whatsapp: updateTemplate(deps.config, 'your morning brief', built.short),
   });
   const saved = await loadBrief(deps.store);
   await deps.store.putSetting(

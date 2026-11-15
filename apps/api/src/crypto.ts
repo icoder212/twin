@@ -80,6 +80,19 @@ export async function hmacSha256Hex(secret: string, body: string): Promise<strin
   return Array.from(sig, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** HMAC-SHA1 in base64: the signature Twilio puts on its webhooks. */
+export async function hmacSha1Base64(secret: string, body: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign'],
+  );
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(body)));
+  return btoa(String.fromCharCode(...sig));
+}
+
 /** Compares secrets without leaking where they differ through timing. */
 export function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;

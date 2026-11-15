@@ -15,6 +15,17 @@
     },
   ],
   "vars": {
+    // WhatsApp goes through Twilio. Until the account has its own approved WhatsApp sender, the
+    // sandbox number delivers only within 24 hours of a message from the owner's phone.
+    "WHATSAPP_PROVIDER": "twilio",
+    "TWILIO_WHATSAPP_FROM": "+14155238886",
+    "TWILIO_REMINDER_CONTENT_SID": "HXca690c94b031bf36d72f371140687c7b",
+    "TWILIO_UPDATE_CONTENT_SID": "HX74287113de3bc1607908b032b114caea",
+    // WhatsApp stops sending when the Twilio balance reaches this (GBP), capping spend.
+    "TWILIO_MIN_BALANCE": "10",
+    // Until then, a reminder at this time each evening asks you to reply on WhatsApp.
+    "SANDBOX_REMINDER_AT": "22:30",
+    "TWILIO_STATUS_CALLBACK_URL": "https://desk-twin-api.withered-disk-7504.workers.dev/twilio/status",
     "WHATSAPP_TEMPLATE": "meeting_reminder",
     "WHATSAPP_UPDATE_TEMPLATE": "release_update",
     "WHATSAPP_TEMPLATE_LANGUAGE": "en_GB",

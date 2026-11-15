@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { runAdviceChecks } from '@twindesk/core';
 import { handleApi } from './api';
-import { buildBrief, loadBrief, runBrief, saveBrief } from './briefing';
+import { buildBrief, fitted, loadBrief, runBrief, saveBrief } from './briefing';
 import type { Config } from './config';
 import { startSession } from './session';
 import { APP, baseConfig, memoryStore } from './test-support';
@@ -36,7 +36,7 @@ const BBC_WORLD = `<rss><channel>
 function fakeNetwork(
   options: { alpacaDown?: boolean; claude?: unknown; fredUpdated?: string } = {},
 ) {
-  const emails: Array<{ to: string[]; subject: string; text: string }> = [];
+  const emails: Array<{ to: string[]; subject: string; text: string; html?: string }> = [];
   const claudeRequests: Array<Record<string, unknown>> = [];
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
@@ -343,6 +343,18 @@ describe('the morning brief', () => {
       subject: '[Desk Twin] Info: Morning brief, Thursday 17 December',
     });
     expect(net.emails[0]?.text).toContain('Markets at the last close\n- S&P 500 (SPY): 606.00');
+    // The HTML version shows big moves and high-severity events in bold, and nothing else.
+    const html = net.emails[0]?.html ?? '';
+    expect(html).toContain('S&amp;P 500 (SPY): 606.00, <strong>up 1.0%</strong> on Wednesday');
+    expect(html).toContain('GBP/USD: 1.3415, <strong>down 2.4%</strong>');
+    expect(html).toContain('EUR/USD: 1.1000, unchanged (ECB');
+    expect(html).toContain(
+      '<strong>12:00 UK Bank of England interest rate decision, high severity.</strong>',
+    );
+    expect(html).toContain(
+      '<li style="margin:3px 0">13:30 US Weekly jobless claims, medium severity.</li>',
+    );
+    expect(html).toContain('Bold marks moves of 1% or more');
 
     const [sent] = await store.listNotifications(10);
     expect(sent?.event).toMatchObject({ topic: 'briefing', href: '/notifications?tab=briefings' });
@@ -378,8 +390,24 @@ describe('the morning brief', () => {
     });
     expect(await runBrief(deps())).toEqual({ status: 'ok', sent: true });
     expect(whatsapp).toEqual([
-      ['your morning brief', expect.stringMatching(/^Today: 12:00 UK Bank of England/)],
+      ['your morning brief', expect.stringMatching(/^Today: 12:00 UK Bank of England.*\.$/)],
     ]);
+    // WhatsApp takes 200 characters a field; the summary is cut to whole items, not mid-word.
+    expect(whatsapp[0]![1]!.length).toBeLessThanOrEqual(200);
+  });
+
+  it('fits a summary to whole items', () => {
+    const parts = [
+      { lead: 'Today: ', items: ['12:00 BoE decision (high)', '13:30 US CPI (high)'] },
+      { lead: 'Last close: ', items: ['S&P 500 up 1.0%', 'gold down 0.2%'] },
+    ];
+    expect(fitted(parts, 400)).toBe(
+      'Today: 12:00 BoE decision (high), 13:30 US CPI (high). Last close: S&P 500 up 1.0%, gold down 0.2%.',
+    );
+    expect(fitted(parts, 90)).toBe(
+      'Today: 12:00 BoE decision (high), 13:30 US CPI (high). Last close: S&P 500 up 1.0%.',
+    );
+    expect(fitted(parts, 40)).toBe('Today: 12:00 BoE decision (high).');
   });
 
   it('keeps only the sections and channels this server has', async () => {

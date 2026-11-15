@@ -13,14 +13,28 @@ const optionalSecret = z
   .optional()
   .or(z.literal('').transform(() => undefined));
 
+/** An optional setting matching `pattern`; an empty value counts as unset. */
+const optionalMatch = (pattern: RegExp) =>
+  z
+    .string()
+    .regex(pattern)
+    .optional()
+    .or(z.literal('').transform(() => undefined));
+
 const configSchema = z.object({
   OWNER_GOOGLE_ACCOUNT: z.email().transform((v) => v.toLowerCase()),
   GOOGLE_CLIENT_ID: z.string().regex(/^[\w-]+\.apps\.googleusercontent\.com$/),
   GOOGLE_CLIENT_SECRET: z.string().min(10),
   /** 32 random bytes, base64: seals Google tokens at rest and the sign-in state. */
   TOKEN_KEY: z.string().min(40),
-  WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/),
-  WHATSAPP_TOKEN: z.string().min(20),
+  /** Which service sends WhatsApp: Meta's Cloud API directly, or Twilio. */
+  WHATSAPP_PROVIDER: z.enum(['meta', 'twilio']).default('meta'),
+  /**
+   * Meta's Cloud API, needed when WHATSAPP_PROVIDER is meta. Provider settings are checked when
+   * a message is sent, so a gap stops WhatsApp only, never email, briefs or the app.
+   */
+  WHATSAPP_PHONE_NUMBER_ID: optionalMatch(/^\d+$/),
+  WHATSAPP_TOKEN: optionalSecret,
   /** Both needed only for delivery receipts; without them the webhook stays switched off. */
   WHATSAPP_APP_SECRET: optionalSecret,
   WHATSAPP_VERIFY_TOKEN: optionalSecret,
@@ -35,6 +49,28 @@ const configSchema = z.object({
     .or(z.literal('').transform(() => undefined)),
   WHATSAPP_TEMPLATE_LANGUAGE: z.string().regex(/^[a-z]{2}(?:_[A-Z]{2})?$/),
   GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/),
+  /** Twilio: needed when WHATSAPP_PROVIDER is twilio. */
+  TWILIO_ACCOUNT_SID: optionalMatch(/^AC[0-9a-f]{32}$/),
+  TWILIO_AUTH_TOKEN: optionalMatch(/^[0-9a-f]{32}$/),
+  /** The WhatsApp sender in international format, e.g. +14155238886 for Twilio's sandbox. */
+  TWILIO_WHATSAPP_FROM: optionalMatch(/^\+[1-9]\d{7,14}$/),
+  /** Twilio content templates with the same wording as the reminder and update templates. */
+  TWILIO_REMINDER_CONTENT_SID: optionalMatch(/^HX[0-9a-f]{32}$/),
+  TWILIO_UPDATE_CONTENT_SID: optionalMatch(/^HX[0-9a-f]{32}$/),
+  /** WhatsApp stops sending once the Twilio balance is at or below this, in its currency. */
+  TWILIO_MIN_BALANCE: optionalMatch(/^\d{1,6}(?:\.\d{1,2})?$/).transform((v) =>
+    v === undefined ? undefined : Number(v),
+  ),
+  /**
+   * While WhatsApp uses Twilio's test number, a daily reminder at this time (on TIMEZONE's clock)
+   * asks the owner to reply so the next day's messages arrive. Unset: no reminder.
+   */
+  SANDBOX_REMINDER_AT: optionalMatch(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+  /** Where Twilio reports delivery, e.g. https://<worker>/twilio/status. Unset: no receipts. */
+  TWILIO_STATUS_CALLBACK_URL: z
+    .url({ protocol: /^https$/ })
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
   REMINDER_MINUTES: z.coerce.number().int().min(1).max(120),
   TIMEZONE: z.string().min(1),
   /** Sites allowed to sign in here, comma-separated, e.g. https://twin.alchmai.com. */

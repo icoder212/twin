@@ -191,7 +191,7 @@ const DIGEST_SYSTEM = `You write the "Yesterday in the news" part of a morning b
 
 Cover four topics:
 - us: US politics, policy, the economy and the markets.
-- war: wars and armed conflicts, attacks, and talks to end them.
+- war: wars and armed conflicts, military action, attacks by armed forces or groups, and talks to end them. Not accidents, crime, natural disasters or protests.
 - oil: oil prices, supply, OPEC and energy policy.
 - gold: gold prices and the precious metals market.
 
@@ -199,6 +199,7 @@ Answer with a list of lines for each of the four topics. Write up to ${PER_TOPIC
 
 Rules:
 - Use only facts stated in the stories you cite, and cite every story a line relies on by its number.
+- Keep names, titles, numbers and attributions exactly as the stories give them. A headline that starts with a name and a colon names the reporter, not someone in the story.
 - Report what happened. Never recommend anything, predict anything or say what prices or markets will do.
 - Leave out analyst ratings, price targets, opinion pieces, adverts and articles about individual stock picks.
 - Do not tell the same story under two topics.

@@ -326,7 +326,9 @@ describe('security helpers', () => {
     expect(sealed).not.toContain('secret');
     expect(await unseal(sealed, KEY)).toBe('secret');
     const [iv, ct = ''] = sealed.split('.');
-    const tampered = `${iv}.${ct.slice(0, -2)}${ct.endsWith('A') ? 'B' : 'A'}${ct.slice(-1)}`;
+    // Swap the second-to-last character for a different one (the last can hold padding bits).
+    const swap = ct.at(-2) === 'A' ? 'B' : 'A';
+    const tampered = `${iv}.${ct.slice(0, -2)}${swap}${ct.slice(-1)}`;
     await expect(unseal(tampered, KEY)).rejects.toThrow();
   });
 
