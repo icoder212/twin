@@ -1,8 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { z } from 'zod';
 import {
   economicStateSchema,
   instructionReplySchema,
+  marketSearchResultSchema,
+  marketsStateSchema,
   newsStateSchema,
+  type MarketsState,
+  type MarketWatchUpdate,
   type EconomicState,
   type EconomicWatchUpdate,
   type NewsState,
@@ -25,7 +30,9 @@ export function useEconomic() {
   });
 }
 
-function useStateUpdate<T extends EconomicState | NewsState>(key: readonly string[]) {
+function useStateUpdate<T extends EconomicState | NewsState | MarketsState>(
+  key: readonly string[],
+) {
   const queryClient = useQueryClient();
   return (state: T) => {
     queryClient.setQueryData(key, state);
@@ -89,5 +96,48 @@ export function useInstruction() {
         schema: instructionReplySchema,
         timeoutMs: INSTRUCTION_TIMEOUT_MS,
       }),
+  });
+}
+
+/** The owner's market watchlist with live prices, refreshed each minute while the page is open. */
+export function useMarkets() {
+  const signedIn = useRealAccount((s) => s.status.signedIn);
+  return useQuery({
+    queryKey: qk.markets,
+    queryFn: () => realRequest('/v1/markets', { schema: marketsStateSchema }),
+    enabled: signedIn,
+    refetchInterval: 60_000,
+  });
+}
+
+/** Markets at the price source matching `term`; searches start at two characters. */
+export function useMarketSearch(term: string) {
+  const signedIn = useRealAccount((s) => s.status.signedIn);
+  return useQuery({
+    queryKey: qk.marketSearch(term),
+    queryFn: () =>
+      realRequest(`/v1/markets/search?q=${encodeURIComponent(term)}`, {
+        schema: z.array(marketSearchResultSchema),
+      }),
+    enabled: signedIn && term.length >= 2,
+    staleTime: 60_000,
+  });
+}
+
+export function useSaveMarkets() {
+  const update = useStateUpdate<MarketsState>(qk.markets);
+  return useMutation({
+    mutationFn: (body: MarketWatchUpdate) =>
+      realRequest('/v1/markets/watch', { method: 'PUT', body, schema: marketsStateSchema }),
+    onSuccess: update,
+  });
+}
+
+export function useStopMarkets() {
+  const update = useStateUpdate<MarketsState>(qk.markets);
+  return useMutation({
+    mutationFn: () =>
+      realRequest('/v1/markets/watch', { method: 'DELETE', schema: marketsStateSchema }),
+    onSuccess: update,
   });
 }

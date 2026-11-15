@@ -62,6 +62,22 @@ const configSchema = z.object({
     v === undefined ? undefined : Number(v),
   ),
   /**
+   * IG's Web API, read for market move alerts: the API key and the Web API login set on IG's API
+   * keys page. Prices are only ever read; no order is ever sent.
+   */
+  IG_API_KEY: optionalMatch(/^[0-9a-f]{40}$/),
+  IG_USERNAME: optionalMatch(/^[A-Za-z0-9._-]{3,40}$/),
+  IG_PASSWORD: z
+    .string()
+    .min(8)
+    .max(100)
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+  /** IG's demo gateway by default: a demo login cannot reach real money. */
+  IG_API_URL: z
+    .enum(['https://demo-api.ig.com/gateway/deal', 'https://api.ig.com/gateway/deal'])
+    .default('https://demo-api.ig.com/gateway/deal'),
+  /**
    * While WhatsApp uses Twilio's test number, a daily reminder at this time (on TIMEZONE's clock)
    * asks the owner to reply so the next day's messages arrive. Unset: no reminder.
    */

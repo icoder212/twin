@@ -1,6 +1,7 @@
 import { Building2, CalendarClock, ContactRound, History, SlidersHorizontal } from 'lucide-react';
 import { useSearchParams } from 'react-router';
 import { InstructionsCard } from '@/features/account/InstructionsCard';
+import { MarketMovesCard } from '@/features/account/MarketMovesCard';
 import { RealAccountPanel } from '@/features/account/RealAccountPanel';
 import { Page, PageHeader } from '@/shared/components/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/menu';
@@ -46,6 +47,7 @@ export function NotificationsPage() {
       />
       <RealAccountPanel />
       <InstructionsCard />
+      <MarketMovesCard />
       <Tabs value={active} onValueChange={select}>
         <TabsList aria-label="Notification sections" className="w-full sm:w-auto">
           {TABS.map(({ id, label, short, icon: Icon }) => (

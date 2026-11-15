@@ -9,6 +9,7 @@ import { runEconomic } from './economic';
 import { log, logError } from './log';
 import { runNews } from './news';
 import { runReminders } from './reminders';
+import { runMarketMoves } from './market-moves';
 import { runSandboxReminder } from './sandbox';
 import { beginGoogle, completeGoogle } from './signin';
 import { d1Store, type Store } from './store';
@@ -201,6 +202,17 @@ export default {
       if (outcome.status === 'ok' && (outcome.sent || outcome.error)) log('news', outcome);
     } catch (error) {
       logError('news', error);
+    }
+    try {
+      const outcome = await runMarketMoves({
+        config: readConfig(env),
+        store: d1Store(env.DB),
+        fetch: fetchFn,
+        now,
+      });
+      if (outcome.status === 'ok' && (outcome.sent || outcome.error)) log('market-moves', outcome);
+    } catch (error) {
+      logError('market-moves', error);
     }
     try {
       const outcome = await runSandboxReminder({

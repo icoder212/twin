@@ -35,6 +35,7 @@ export const baseConfig: Config = {
   ALPACA_SECRET_KEY: undefined,
   FRED_API_KEY: undefined,
   TWILIO_MIN_BALANCE: undefined,
+  IG_API_URL: 'https://demo-api.ig.com/gateway/deal',
 };
 
 export function memoryStore() {

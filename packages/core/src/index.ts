@@ -13,6 +13,7 @@ export * from './domain/account';
 export * from './domain/economic';
 export * from './domain/news';
 export * from './domain/instructions';
+export * from './domain/markets';
 
 // API contract and transport
 export * from './api/contracts';

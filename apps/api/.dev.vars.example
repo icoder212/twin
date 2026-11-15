@@ -25,6 +25,13 @@ WHATSAPP_TO=
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 
+# IG Web API, for market move alerts (prices are only read). On IG's API keys page, Demo
+# accounts tab: the API key, and the "Web API demo login details" you set there. Use a demo
+# login: it cannot reach real money. Optional: without it, market moves are switched off.
+IG_API_KEY=
+IG_USERNAME=
+IG_PASSWORD=
+
 # Resend > API Keys > a key with Sending access. Optional: without it, email is reported as not set up.
 RESEND_API_KEY=
 # Optional: where email goes, if not OWNER_GOOGLE_ACCOUNT. Until you verify a domain in Resend,

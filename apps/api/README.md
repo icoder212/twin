@@ -163,6 +163,24 @@ stops by itself once `TWILIO_WHATSAPP_FROM` is your own number.
 A missing WhatsApp setting fails WhatsApp messages only, with the reason in the delivery log.
 Email, briefs and the app carry on.
 
+## Market move alerts (IG)
+
+Watch markets from the Notifications page. Each minute the server reads the watched markets from
+IG in one request. A market alerts the first time its move on the day reaches each new step, up
+or down: with a 1% step, at +1%, +2% and so on, and at −1%, −2% and so on. IG measures the day's
+change on the bid, so bid minus change is the previous close; when that changes, a new trading
+day has started and the steps begin again. There are at most 40 alerts a day. Alerts use the
+`price` routing (the app and WhatsApp by default) and the update template.
+
+Set up once, on IG's API keys page, Demo accounts tab:
+
+1. Create an API key.
+2. Set the Web API demo login details: a username different from your live one, and a password.
+3. Put `IG_API_KEY`, `IG_USERNAME` and `IG_PASSWORD` in `.dev.vars` and upload them as secrets.
+
+`IG_API_URL` is IG's demo gateway by default. A demo login cannot reach real money, and the
+server only ever searches markets and reads prices.
+
 ## Email to your own domain
 
 Resend's test sender (`onboarding@resend.dev`) delivers only to the address the Resend account

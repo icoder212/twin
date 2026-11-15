@@ -10,6 +10,7 @@ import {
   type AccountStatus,
   type Notification,
   type NotificationEvent,
+  marketWatchUpdateSchema,
 } from '@twindesk/core';
 import {
   briefState,
@@ -22,7 +23,9 @@ import {
 import type { Config } from './config';
 import { economicState, loadWatch, saveWatch } from './economic';
 import { apiError, json, redirect, text, withCookies } from './http';
+import { IgError, searchMarkets } from './ig';
 import { interpret, InstructionError } from './instructions';
+import { marketsState, saveMarketWatch } from './market-moves';
 import { loadNewsWatch, newsState, saveNewsWatch } from './news';
 import { localTime, notify } from './notify';
 import { loadPreferences, savePreferences, serverContacts, serverPolicy } from './settings';
@@ -256,6 +259,33 @@ export async function handleApi(request: Request, url: URL, deps: ApiDeps): Prom
       case 'DELETE /v1/economic/watch':
         await saveWatch({ ...deps, now }, null);
         return json(await economicState({ ...deps, now }));
+      case 'GET /v1/markets':
+        return json(await marketsState({ ...deps, now }));
+      case 'GET /v1/markets/search': {
+        const term = (url.searchParams.get('q') ?? '').trim();
+        if (term.length < 2 || term.length > 40) {
+          return apiError(422, 'Type 2 to 40 characters to search.');
+        }
+        try {
+          return json(await searchMarkets({ ...deps, now }, term));
+        } catch (error) {
+          if (error instanceof IgError) return apiError(502, error.message);
+          throw error;
+        }
+      }
+      case 'PUT /v1/markets/watch': {
+        const { watch, channels } = await readBody(request, marketWatchUpdateSchema);
+        if (channels) {
+          const preferences = await loadPreferences(store);
+          const routing = { ...preferences.routing, price: ['in-app' as const, ...channels] };
+          await savePreferences(store, { ...preferences, routing }, now);
+        }
+        await saveMarketWatch(store, watch, now);
+        return json(await marketsState({ ...deps, now }));
+      }
+      case 'DELETE /v1/markets/watch':
+        await saveMarketWatch(store, null, now);
+        return json(await marketsState({ ...deps, now }));
       case 'GET /v1/news':
         return json(await newsState({ ...deps, now }));
       case 'PUT /v1/news/watch': {

@@ -17,6 +17,8 @@ export const qk = {
   calendarRoot: ['calendar'] as const,
   economic: ['economic'] as const,
   news: ['news'] as const,
+  markets: ['markets'] as const,
+  marketSearch: (term: string) => ['markets', 'search', term] as const,
   notifyRoot: ['notify'] as const,
   notificationPrefs: ['notify', 'preferences'] as const,
   contacts: ['notify', 'contacts'] as const,
