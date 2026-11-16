@@ -91,6 +91,16 @@ describe('Twilio settings', () => {
   });
 });
 
+describe('the update template', () => {
+  it('leaves the closing full stop to the template', () => {
+    const update = updateTemplate(twilio, 'your morning brief', 'Biggest moves: FCUV up 136.0%.');
+    expect(update?.params).toEqual(['your morning brief', 'Biggest moves: FCUV up 136.0%']);
+    expect(updateTemplate(twilio, 'US Tech 100', 'up 2.0% today at 28,601.0')?.params[1]).toBe(
+      'up 2.0% today at 28,601.0',
+    );
+  });
+});
+
 describe('sending through Twilio', () => {
   it('sends the matching content template with its variables', async () => {
     const net = fakeTwilio('19.98');

@@ -48,7 +48,8 @@ export function updateTemplate(
   return {
     kind: 'update',
     name: config.WHATSAPP_UPDATE_TEMPLATE ?? 'release_update',
-    params: [templateText(subject), templateText(details, 200)],
+    // The template ends the sentence itself, so a closing full stop here would double it.
+    params: [templateText(subject), templateText(details.replace(/[.\s]+$/, ''), 200)],
   };
 }
 

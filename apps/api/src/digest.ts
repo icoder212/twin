@@ -9,7 +9,8 @@ import type { NotifyDeps } from './notify';
 import { getText, parseRss } from './rss';
 
 /**
- * "Yesterday in the news" for the morning brief: the last 24 hours on the US, wars and conflicts,
+ * The news part of the morning brief: since the last trading day's brief (the last 24 hours, or
+ * from Friday on a Monday) on the US, wars and conflicts,
  * oil and gold. Stories come from the BBC's world, US and business feeds and from Benzinga's
  * market-wide items (those tagged with the index, oil and gold funds), through Alpaca. Claude's
  * small model writes a few short lines using only those stories, citing them by number. A line
@@ -126,9 +127,22 @@ async function bbc(fetchFn: typeof fetch, since: number): Promise<Story[]> {
   );
 }
 
-/** The last 24 hours of stories, newest first, each headline once. */
-export async function collectStories(deps: NotifyDeps): Promise<Story[]> {
-  const since = deps.now - DAY_MS;
+/** The span of news a digest covers: normally the last day, from Friday on a Monday. */
+export interface DigestPeriod {
+  since: number;
+  /** e.g. "the last 24 hours" or "the 72 hours since Friday morning". */
+  words: string;
+}
+
+function lastDay(deps: NotifyDeps): DigestPeriod {
+  return { since: deps.now - DAY_MS, words: 'the last 24 hours' };
+}
+
+/** Stories since `since` (the last 24 hours by default), newest first, each headline once. */
+export async function collectStories(
+  deps: NotifyDeps,
+  since = deps.now - DAY_MS,
+): Promise<Story[]> {
   const [fromBbc, fromBenzinga] = await Promise.allSettled([
     bbc(deps.fetch, since),
     benzinga(deps.config, deps.fetch, since),
@@ -187,7 +201,8 @@ const digestSchema = z.object({
   gold: z.array(lineSchema),
 });
 
-const DIGEST_SYSTEM = `You write the "Yesterday in the news" part of a morning brief for a trader in the UK. You are given numbered news stories from the last 24 hours: a headline and sometimes a short summary.
+const digestSystem = (period: string) =>
+  `You write the news part of a morning brief for a trader in the UK. You are given numbered news stories from ${period}: a headline and sometimes a short summary.
 
 Cover four topics:
 - us: US politics, policy, the economy and the markets.
@@ -206,7 +221,11 @@ Rules:
 - Leave a topic's list empty only when no story covers it.`;
 
 /** Claude's lines, checked: valid citations, within length, and passing the advice checks. */
-async function writtenDigest(deps: NotifyDeps, stories: Story[]): Promise<string[] | null> {
+async function writtenDigest(
+  deps: NotifyDeps,
+  stories: Story[],
+  period: DigestPeriod,
+): Promise<string[] | null> {
   const { config, store, fetch, now } = deps;
   const client = claudeClient(config, fetch, 40_000);
   if (!client || !(await spendAllowance(store, USAGE_KEY, DAILY_LIMIT, now))) return null;
@@ -215,7 +234,7 @@ async function writtenDigest(deps: NotifyDeps, stories: Story[]): Promise<string
       model: config.CLAUDE_FILTER_MODEL,
       max_tokens: 2000,
       thinking: { type: 'disabled' },
-      system: DIGEST_SYSTEM,
+      system: digestSystem(period.words),
       output_config: { effort: 'low', format: zodOutputFormat(digestSchema) },
       messages: [
         {
@@ -255,7 +274,7 @@ async function writtenDigest(deps: NotifyDeps, stories: Story[]): Promise<string
       }
       // Each topic is always shown, so a quiet one reads as checked rather than missing.
       if (lines.length === before) {
-        lines.push(`${TOPIC_NAMES[topic]}: nothing in the sources in the last 24 hours.`);
+        lines.push(`${TOPIC_NAMES[topic]}: nothing in the sources in ${period.words}.`);
       }
     }
     return lines;
@@ -269,7 +288,11 @@ async function writtenDigest(deps: NotifyDeps, stories: Story[]): Promise<string
  * The digest for today, written once and kept for the rest of the day so previews and resends
  * reuse it. Empty when no stories could be read.
  */
-export async function yesterdayDigest(deps: NotifyDeps, day: string): Promise<string[]> {
+export async function yesterdayDigest(
+  deps: NotifyDeps,
+  day: string,
+  period: DigestPeriod = lastDay(deps),
+): Promise<string[]> {
   try {
     const cached = JSON.parse((await deps.store.getSetting(CACHE_KEY)) ?? 'null') as {
       day?: unknown;
@@ -285,9 +308,9 @@ export async function yesterdayDigest(deps: NotifyDeps, day: string): Promise<st
   } catch {
     // An unreadable cache is written again below.
   }
-  const stories = await collectStories(deps);
+  const stories = await collectStories(deps, period.since);
   if (stories.length === 0) return [];
-  const written = await writtenDigest(deps, stories);
+  const written = await writtenDigest(deps, stories, period);
   const lines = written && written.length > 0 ? written : listedDigest(stories);
   // Only Claude's digest is kept: the listing is cheap to make again with fresher stories.
   if (written && written.length > 0) {

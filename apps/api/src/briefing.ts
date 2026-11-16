@@ -23,7 +23,7 @@ import {
   ECB_TIME,
   ECB_ZONE,
 } from './central-banks';
-import { yesterdayDigest } from './digest';
+import { yesterdayDigest, type DigestPeriod } from './digest';
 import { fetchResult, refreshSchedule, zonedInstant } from './economic';
 import { BIG_MOVE, markets, MIN_MOVER_PRICE, movers, type Markets } from './markets';
 import { loadNewsWatch, loadRecent } from './news';
@@ -145,6 +145,45 @@ function longDay(deps: NotifyDeps, at: number): string {
   }).format(new Date(at));
 }
 
+/**
+ * How far back "yesterday" reaches: to the last weekday, so Monday's brief covers Friday and the
+ * weekend, and Sunday's covers Friday and Saturday. Bank holidays are not skipped.
+ */
+interface LookBack {
+  days: number;
+  /** The weekday it reaches back to, e.g. "Friday". */
+  day: string;
+  since: number;
+}
+
+function lookBack(deps: NotifyDeps): LookBack {
+  const today = dayKeyIn(deps.config.TIMEZONE, new Date(deps.now));
+  const noon = Date.parse(`${today}T12:00:00Z`);
+  const weekday = new Date(noon).getUTCDay();
+  const days = weekday === 1 ? 3 : weekday === 0 ? 2 : 1;
+  const day = new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: 'UTC' }).format(
+    new Date(noon - days * DAY_MS),
+  );
+  return { days, day, since: deps.now - days * DAY_MS };
+}
+
+function digestPeriod(back: LookBack): DigestPeriod {
+  return {
+    since: back.since,
+    words:
+      back.days === 1
+        ? 'the last 24 hours'
+        : `the ${back.days * 24} hours since ${back.day} morning`,
+  };
+}
+
+/** Section headings, naming the day when "yesterday" would be wrong. */
+function heading(id: BriefingSection, back: LookBack): string {
+  if (back.days > 1 && id === 'headlines') return `In the news since ${back.day}`;
+  if (back.days > 1 && id === 'results') return `${back.day}’s results`;
+  return BRIEFING_SECTION_LABELS[id];
+}
+
 /** Midnight at the start of today, `offset` days on, on the owner's clock. */
 function midnight(deps: NotifyDeps, offset = 0): number {
   const zone = deps.config.TIMEZONE;
@@ -180,13 +219,22 @@ async function events(deps: NotifyDeps): Promise<{ today: DayEvent[]; next?: Day
   return { today: all.filter((e) => e.at < end), next: all.find((e) => e.at >= end && e.high) };
 }
 
-/** What yesterday's US releases and any Fed decision published, from the agencies or FRED. */
-async function yesterdayResults(deps: NotifyDeps): Promise<string[]> {
+/**
+ * What the last trading day's US releases and any Fed decision published, from the agencies or
+ * FRED: yesterday's, or Friday's on a Monday.
+ */
+async function yesterdayResults(deps: NotifyDeps, back: LookBack): Promise<string[]> {
   const time = (at: number) => localTime(deps.config, new Date(at).toISOString());
-  const rows = (await deps.store.listReleases(midnight(deps, -1), midnight(deps) - 1)).filter(
-    (r) => r.at < deps.now,
-  );
-  if (rows.length === 0) return ['No scheduled US releases yesterday.'];
+  const rows = (
+    await deps.store.listReleases(midnight(deps, -back.days), midnight(deps) - 1)
+  ).filter((r) => r.at < deps.now);
+  if (rows.length === 0) {
+    return [
+      back.days === 1
+        ? 'No scheduled US releases yesterday.'
+        : `No scheduled US releases on ${back.day}.`,
+    ];
+  }
   const items: string[] = [];
   for (const row of rows) {
     const label = `${time(row.at)} US ${US_RELEASE_INFO[row.event].label}`;
@@ -204,18 +252,18 @@ async function yesterdayResults(deps: NotifyDeps): Promise<string[]> {
   return items;
 }
 
-async function newsItems(deps: NotifyDeps): Promise<string[]> {
+async function newsItems(deps: NotifyDeps, back: LookBack): Promise<string[]> {
   if (!(await loadNewsWatch(deps.store))) {
     return [
       'You are not following any news yet. Add companies or topics under Instructions for Desk Twin.',
     ];
   }
-  const recent = (await loadRecent(deps.store)).filter(
-    (a) => Date.parse(a.at) >= deps.now - DAY_MS,
-  );
+  const recent = (await loadRecent(deps.store)).filter((a) => Date.parse(a.at) >= back.since);
   return recent.length
     ? recent.map((a) => `${a.headline} (${NEWS_SOURCE_LABELS[a.source]})`)
-    : ['No headlines on what you follow in the last 24 hours.'];
+    : [
+        `No headlines on what you follow ${back.days === 1 ? 'in the last 24 hours' : `since ${back.day} morning`}.`,
+      ];
 }
 
 /** The notification body's limit, and WhatsApp's for a template field. */
@@ -276,6 +324,7 @@ export async function buildBrief(
   const wanted = OFFERED.filter((s) => sections.includes(s));
   const none: { today: DayEvent[]; next?: DayEvent } = { today: [] };
   const noMarkets: Markets = { lines: [], moves: [] };
+  const back = lookBack(deps);
   // Release dates are refreshed first, as yesterday's results read the same stored schedule.
   const day = wanted.includes('releases') ? await events(deps) : none;
   const [market, moved, headlines, results, news] = await Promise.all([
@@ -289,10 +338,10 @@ export async function buildBrief(
         }))
       : noMarkets,
     wanted.includes('headlines')
-      ? yesterdayDigest(deps, dayKeyIn(config.TIMEZONE, new Date(now)))
+      ? yesterdayDigest(deps, dayKeyIn(config.TIMEZONE, new Date(now)), digestPeriod(back))
       : [],
-    wanted.includes('results') ? yesterdayResults(deps) : [],
-    wanted.includes('news') ? newsItems(deps) : [],
+    wanted.includes('results') ? yesterdayResults(deps, back) : [],
+    wanted.includes('news') ? newsItems(deps, back) : [],
   ]);
 
   const releaseItems: BriefItem[] = day.today.length
@@ -327,7 +376,7 @@ export async function buildBrief(
   const title = `Morning brief, ${longDay(deps, now)}`;
   const shown = wanted.map((id) => ({
     id,
-    heading: BRIEFING_SECTION_LABELS[id],
+    heading: heading(id, back),
     items: (items[id] ?? [])
       .slice(0, MAX_ITEMS)
       .map((i) => ({ ...i, text: i.text.slice(0, MAX_ITEM_LENGTH) })),
@@ -372,7 +421,7 @@ export async function buildBrief(
       : []),
     ...(wanted.includes('headlines')
       ? [
-          'Yesterday in the news covers the 24 hours to this brief, from BBC News and Benzinga, summarised by Claude from the stories named.',
+          `${heading('headlines', back)} covers ${back.days === 1 ? 'the 24 hours to this brief' : `the ${back.days * 24} hours since ${back.day}’s brief`}, from BBC News and Benzinga, summarised by Claude from the stories named.`,
         ]
       : []),
     'Facts only, with no recommendations or forecasts.',

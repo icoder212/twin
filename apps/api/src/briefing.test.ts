@@ -244,9 +244,26 @@ describe('the morning brief', () => {
       '13:30 US Weekly jobless claims: the figures are not on FRED yet.',
     ]);
 
+    // On a Monday "yesterday" is Friday: the weekend has no releases.
     const monday = Date.parse('2026-12-14T08:00:00Z');
-    const quiet = await buildBrief(deps(monday), ['results']);
-    expect(quiet.briefing.sections[0]?.items).toEqual(['No scheduled US releases yesterday.']);
+    const quiet = await buildBrief(deps(monday), ['results', 'headlines']);
+    expect(quiet.briefing.sections.map((section) => section.heading)).toEqual([
+      'In the news since Friday',
+      'Friday’s results',
+    ]);
+    expect(quiet.briefing.sections[1]?.items).toEqual(['No scheduled US releases on Friday.']);
+
+    // A Tuesday looks back one day again.
+    const tuesday = Date.parse('2026-12-15T08:00:00Z');
+    const back = await buildBrief(deps(tuesday), ['results']);
+    expect(back.briefing.sections[0]?.heading).toBe('Yesterday’s results');
+  });
+
+  it('reaches back to Friday for Monday’s results', async () => {
+    // Thursday 10 December's jobless claims are "yesterday" on the Friday, and not on the Monday.
+    const monday = Date.parse('2026-12-14T08:00:00Z');
+    const { briefing } = await buildBrief(deps(monday), ['results']);
+    expect(briefing.sections[0]?.items).not.toContainEqual(expect.stringMatching(/jobless claims/));
   });
 
   it('lists yesterday’s headlines by topic as published when Claude is not set up', async () => {
@@ -390,7 +407,7 @@ describe('the morning brief', () => {
     });
     expect(await runBrief(deps())).toEqual({ status: 'ok', sent: true });
     expect(whatsapp).toEqual([
-      ['your morning brief', expect.stringMatching(/^Today: 12:00 UK Bank of England.*\.$/)],
+      ['your morning brief', expect.stringMatching(/^Today: 12:00 UK Bank of England.*[^.]$/)],
     ]);
     // WhatsApp takes 200 characters a field; the summary is cut to whole items, not mid-word.
     expect(whatsapp[0]![1]!.length).toBeLessThanOrEqual(200);
