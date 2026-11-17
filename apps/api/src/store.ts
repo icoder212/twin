@@ -31,6 +31,12 @@ export interface ReleaseRow {
   details: string | null;
 }
 
+export interface DeliveryCount {
+  channel: string;
+  status: string;
+  count: number;
+}
+
 /** Persistence the reminder run needs. D1 in production; an in-memory version in tests. */
 export interface Store {
   getLink(): Promise<GoogleLink | null>;
@@ -62,6 +68,8 @@ export interface Store {
   getNotification(id: string): Promise<StoredNotification | null>;
   /** Newest first. */
   listNotifications(limit: number): Promise<StoredNotification[]>;
+  /** Deliveries of notifications created since a time, counted by channel and status. */
+  countDeliveries(since: number): Promise<DeliveryCount[]>;
   markRead(ids: string[]): Promise<void>;
   /** Links a provider's message id to a notification, for delivery receipts. */
   recordOutbound(messageId: string, notificationId: string, channel: string): Promise<void>;
@@ -245,6 +253,20 @@ export function d1Store(db: D1Database): Store {
         .bind(limit)
         .all<NotificationRow>();
       return results.map(toStored).filter((n): n is StoredNotification => n !== null);
+    },
+    async countDeliveries(since) {
+      const { results } = await db
+        .prepare(
+          `SELECT json_extract(d.value, '$.channel') AS channel,
+                  json_extract(d.value, '$.status') AS status,
+                  COUNT(*) AS count
+             FROM notifications, json_each(notifications.event, '$.deliveries') AS d
+            WHERE notifications.created_at >= ?
+            GROUP BY channel, status`,
+        )
+        .bind(since)
+        .all<DeliveryCount>();
+      return results;
     },
     async markRead(ids) {
       for (const id of ids.slice(0, 100)) {

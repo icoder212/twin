@@ -1,7 +1,7 @@
 import './jitless';
 import type { DeliveryStatus } from '@twindesk/core';
 import { handleApi } from './api';
-import { runBrief } from './briefing';
+import { BRIEF_KINDS, runBrief } from './briefing';
 import { readConfig, type Config, type Env } from './config';
 import { timingSafeEqual } from './crypto';
 import { json, text } from './http';
@@ -10,6 +10,8 @@ import { log, logError } from './log';
 import { runNews } from './news';
 import { runReminders } from './reminders';
 import { runMarketMoves } from './market-moves';
+import { runRuleWatch } from './rule-watch';
+import { runSessionNotes } from './session-notes';
 import { runSandboxReminder } from './sandbox';
 import { beginGoogle, completeGoogle } from './signin';
 import { d1Store, type Store } from './store';
@@ -181,16 +183,16 @@ export default {
     } catch (error) {
       logError('economic', error);
     }
-    try {
-      const outcome = await runBrief({
-        config: readConfig(env),
-        store: d1Store(env.DB),
-        fetch: fetchFn,
-        now,
-      });
-      if (outcome.status === 'ok' && outcome.sent) log('briefing', outcome);
-    } catch (error) {
-      logError('briefing', error);
+    for (const kind of BRIEF_KINDS) {
+      try {
+        const outcome = await runBrief(
+          { config: readConfig(env), store: d1Store(env.DB), fetch: fetchFn, now },
+          kind,
+        );
+        if (outcome.status === 'ok' && outcome.sent) log('briefing', { kind, ...outcome });
+      } catch (error) {
+        logError('briefing', error);
+      }
     }
     try {
       const outcome = await runNews({
@@ -213,6 +215,28 @@ export default {
       if (outcome.status === 'ok' && (outcome.sent || outcome.error)) log('market-moves', outcome);
     } catch (error) {
       logError('market-moves', error);
+    }
+    try {
+      const outcome = await runRuleWatch({
+        config: readConfig(env),
+        store: d1Store(env.DB),
+        fetch: fetchFn,
+        now,
+      });
+      if (outcome.status === 'ok' && (outcome.sent || outcome.error)) log('rule-watch', outcome);
+    } catch (error) {
+      logError('rule-watch', error);
+    }
+    try {
+      const outcome = await runSessionNotes({
+        config: readConfig(env),
+        store: d1Store(env.DB),
+        fetch: fetchFn,
+        now,
+      });
+      if (outcome.status === 'ok' && outcome.sent) log('session-notes', outcome);
+    } catch (error) {
+      logError('session-notes', error);
     }
     try {
       const outcome = await runSandboxReminder({

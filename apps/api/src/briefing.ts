@@ -3,15 +3,18 @@ import {
   briefingScheduleSchema,
   dayKeyIn,
   DELIVERY_CHANNELS,
+  describeMove,
   localClock,
   MAJOR_US_RELEASES,
   NEWS_SOURCE_LABELS,
   US_RELEASE_INFO,
   updateBriefingInputSchema,
   type Briefing,
+  type BriefingKind,
   type BriefingSchedule,
   type BriefingSection,
   type NotificationEvent,
+  type NotificationTopic,
 } from '@twindesk/core';
 import type { z } from 'zod';
 import { briefHtml, type BriefItem } from './brief-email';
@@ -25,6 +28,7 @@ import {
 } from './central-banks';
 import { yesterdayDigest, type DigestPeriod } from './digest';
 import { fetchResult, refreshSchedule, zonedInstant } from './economic';
+import { formatPrice, marketsState } from './market-moves';
 import { BIG_MOVE, markets, MIN_MOVER_PRICE, movers, type Markets } from './markets';
 import { loadNewsWatch, loadRecent } from './news';
 import { localTime, notify, type NotifyDeps } from './notify';
@@ -36,13 +40,14 @@ import { updateTemplate } from './whatsapp';
  * The morning brief, on the owner's schedule: markets at the last close, the biggest moves among
  * US stocks, the last 24 hours in the news (the US, wars and conflicts, oil and gold), the figures
  * from yesterday's US releases, the day's US releases and central bank decisions with a severity
- * for each, and the news the owner follows. Facts only; the brief never recommends or predicts
- * anything.
+ * for each, and the news the owner follows. The end-of-day recap, on its own schedule: the
+ * owner's markets from IG, the close, today's figures, the alerts sent today and the next
+ * weekday's releases. Facts only; neither recommends or predicts anything.
  */
 
-const SCHEDULE_KEY = 'briefing-morning-brief';
+const scheduleKey = (kind: BriefingKind) => `briefing-${kind}`;
 /** The day of the last scheduled send, so later runs that day stop before building anything. */
-const SENT_KEY = 'briefing-morning-brief-sent';
+const sentKey = (kind: BriefingKind) => `briefing-${kind}-sent`;
 const DAY_MS = 86_400_000;
 /** How far ahead to look for the next high-severity event when the day has none. */
 const LOOKAHEAD_DAYS = 60;
@@ -51,35 +56,65 @@ const LATE_MINUTES = 30;
 const MAX_ITEMS = 12;
 const MAX_ITEM_LENGTH = 240;
 
-/** What this server can put in a brief, in the order it appears. */
-export const OFFERED: BriefingSection[] = [
-  'markets',
-  'movers',
-  'headlines',
-  'results',
-  'releases',
-  'news',
-];
+/** The briefings this server sends. */
+export const BRIEF_KINDS: BriefingKind[] = ['morning-brief', 'end-of-day', 'weekly-review'];
 
-const DEFAULT_SCHEDULE: BriefingSchedule = {
-  kind: 'morning-brief',
-  enabled: false,
-  time: '08:00',
-  days: [0, 1, 2, 3, 4, 5, 6],
-  channels: ['in-app', 'email'],
-  sections: OFFERED,
+/** What this server can put in each briefing, in the order it appears. */
+export const OFFERED: Record<BriefingKind, BriefingSection[]> = {
+  'morning-brief': ['markets', 'movers', 'headlines', 'results', 'releases', 'news'],
+  'end-of-day': ['watchlist', 'markets', 'movers', 'results', 'alerts', 'tomorrow'],
+  'weekly-review': ['week-alerts', 'week-results', 'journal', 'next-week'],
+};
+
+const DEFAULTS: Record<BriefingKind, BriefingSchedule> = {
+  'morning-brief': {
+    kind: 'morning-brief',
+    enabled: false,
+    time: '08:00',
+    days: [0, 1, 2, 3, 4, 5, 6],
+    channels: ['in-app', 'email'],
+    sections: OFFERED['morning-brief'],
+  },
+  // After the US close at 21:00 UK time.
+  'end-of-day': {
+    kind: 'end-of-day',
+    enabled: false,
+    time: '21:30',
+    days: [1, 2, 3, 4, 5],
+    channels: ['in-app', 'email'],
+    sections: OFFERED['end-of-day'],
+  },
+  // Friday after the US close.
+  'weekly-review': {
+    kind: 'weekly-review',
+    enabled: false,
+    time: '22:00',
+    days: [5],
+    channels: ['in-app', 'email'],
+    sections: OFFERED['weekly-review'],
+  },
+};
+
+/** How each briefing is named in its WhatsApp message. */
+const WHATSAPP_SUBJECT: Record<BriefingKind, string> = {
+  'morning-brief': 'your morning brief',
+  'end-of-day': 'your end-of-day recap',
+  'weekly-review': 'your weekly review',
 };
 
 export const briefUpdateSchema = updateBriefingInputSchema.omit({ kind: true });
 
-export async function loadBrief(store: Store): Promise<BriefingSchedule> {
+export async function loadBrief(
+  store: Store,
+  kind: BriefingKind = 'morning-brief',
+): Promise<BriefingSchedule> {
   try {
     const parsed = briefingScheduleSchema.safeParse(
-      JSON.parse((await store.getSetting(SCHEDULE_KEY)) ?? 'null'),
+      JSON.parse((await store.getSetting(scheduleKey(kind))) ?? 'null'),
     );
-    return parsed.success ? parsed.data : DEFAULT_SCHEDULE;
+    return parsed.success && parsed.data.kind === kind ? parsed.data : DEFAULTS[kind];
   } catch {
-    return DEFAULT_SCHEDULE;
+    return DEFAULTS[kind];
   }
 }
 
@@ -87,13 +122,14 @@ export async function loadBrief(store: Store): Promise<BriefingSchedule> {
 export async function saveBrief(
   deps: NotifyDeps,
   input: z.infer<typeof briefUpdateSchema>,
+  kind: BriefingKind = 'morning-brief',
 ): Promise<BriefingSchedule | null> {
-  const sections = OFFERED.filter((s) => input.sections.includes(s));
+  const sections = OFFERED[kind].filter((s) => input.sections.includes(s));
   if (sections.length === 0) return null;
   const allowed = new Set(serverPolicy().allowedChannels);
-  const previous = await loadBrief(deps.store);
+  const previous = await loadBrief(deps.store, kind);
   const schedule: BriefingSchedule = {
-    kind: 'morning-brief',
+    kind,
     enabled: input.enabled,
     time: input.time,
     days: [...new Set(input.days)].sort((a, b) => a - b),
@@ -103,7 +139,7 @@ export async function saveBrief(
     sections,
     ...(previous.lastSentAt ? { lastSentAt: previous.lastSentAt } : {}),
   };
-  await deps.store.putSetting(SCHEDULE_KEY, JSON.stringify(schedule), deps.now);
+  await deps.store.putSetting(scheduleKey(kind), JSON.stringify(schedule), deps.now);
   return schedule;
 }
 
@@ -120,10 +156,13 @@ function nextRun(deps: NotifyDeps, schedule: BriefingSchedule): string | undefin
 }
 
 /** The schedule as the app shows it. */
-export async function briefState(deps: NotifyDeps): Promise<BriefingSchedule> {
-  const schedule = await loadBrief(deps.store);
+export async function briefState(
+  deps: NotifyDeps,
+  kind: BriefingKind = 'morning-brief',
+): Promise<BriefingSchedule> {
+  const schedule = await loadBrief(deps.store, kind);
   const next = nextRun(deps, schedule);
-  return { ...schedule, offered: OFFERED, ...(next ? { nextRunAt: next } : {}) };
+  return { ...schedule, offered: OFFERED[kind], ...(next ? { nextRunAt: next } : {}) };
 }
 
 interface DayEvent {
@@ -177,8 +216,31 @@ function digestPeriod(back: LookBack): DigestPeriod {
   };
 }
 
-/** Section headings, naming the day when "yesterday" would be wrong. */
-function heading(id: BriefingSection, back: LookBack): string {
+/** The next weekday, for the recap's look ahead: Friday's covers Monday. */
+interface Ahead {
+  offset: number;
+  /** e.g. "Monday". */
+  day: string;
+}
+
+function ahead(deps: NotifyDeps): Ahead {
+  const today = dayKeyIn(deps.config.TIMEZONE, new Date(deps.now));
+  const noon = Date.parse(`${today}T12:00:00Z`);
+  const weekday = new Date(noon).getUTCDay();
+  const offset = weekday === 5 ? 3 : weekday === 6 ? 2 : 1;
+  const day = new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: 'UTC' }).format(
+    new Date(noon + offset * DAY_MS),
+  );
+  return { offset, day };
+}
+
+/** Section headings, naming the day when "yesterday" or "tomorrow" would be wrong. */
+function heading(id: BriefingSection, kind: BriefingKind, back: LookBack, next: Ahead): string {
+  if (kind === 'end-of-day') {
+    if (id === 'results') return 'Today’s results';
+    if (id === 'tomorrow' && next.offset > 1) return `${next.day}’s releases`;
+    return BRIEFING_SECTION_LABELS[id];
+  }
   if (back.days > 1 && id === 'headlines') return `In the news since ${back.day}`;
   if (back.days > 1 && id === 'results') return `${back.day}’s results`;
   return BRIEFING_SECTION_LABELS[id];
@@ -190,13 +252,20 @@ function midnight(deps: NotifyDeps, offset = 0): number {
   return zonedInstant(dayKeyIn(zone, new Date(deps.now), offset), '00:00', zone);
 }
 
-/** Today's scheduled US releases and central bank decisions, and the next high-severity one. */
-async function events(deps: NotifyDeps): Promise<{ today: DayEvent[]; next?: DayEvent }> {
+/**
+ * The scheduled US releases and central bank decisions on one day, today unless `offset` says
+ * otherwise, and the next high-severity one after it.
+ */
+async function events(
+  deps: NotifyDeps,
+  offset = 0,
+  days = 1,
+): Promise<{ today: DayEvent[]; next?: DayEvent }> {
   const { store, now } = deps;
   // Stale dates are better than none, so a failed refresh still lists what is stored.
   await refreshSchedule(deps).catch(() => undefined);
-  const start = midnight(deps);
-  const end = midnight(deps, 1);
+  const start = midnight(deps, offset);
+  const end = midnight(deps, offset + days);
   const horizon = now + LOOKAHEAD_DAYS * DAY_MS;
   const us = (await store.listReleases(start, horizon)).map((r) => ({
     at: r.at,
@@ -223,18 +292,27 @@ async function events(deps: NotifyDeps): Promise<{ today: DayEvent[]; next?: Day
  * What the last trading day's US releases and any Fed decision published, from the agencies or
  * FRED: yesterday's, or Friday's on a Monday.
  */
-async function yesterdayResults(deps: NotifyDeps, back: LookBack): Promise<string[]> {
+function yesterdayResults(deps: NotifyDeps, back: LookBack): Promise<string[]> {
+  return publishedResults(
+    deps,
+    midnight(deps, -back.days),
+    midnight(deps) - 1,
+    back.days === 1
+      ? 'No scheduled US releases yesterday.'
+      : `No scheduled US releases on ${back.day}.`,
+  );
+}
+
+/** What the US releases due between two times published, or `none` when there were none. */
+async function publishedResults(
+  deps: NotifyDeps,
+  from: number,
+  to: number,
+  none: string,
+): Promise<string[]> {
   const time = (at: number) => localTime(deps.config, new Date(at).toISOString());
-  const rows = (
-    await deps.store.listReleases(midnight(deps, -back.days), midnight(deps) - 1)
-  ).filter((r) => r.at < deps.now);
-  if (rows.length === 0) {
-    return [
-      back.days === 1
-        ? 'No scheduled US releases yesterday.'
-        : `No scheduled US releases on ${back.day}.`,
-    ];
-  }
+  const rows = (await deps.store.listReleases(from, to)).filter((r) => r.at < deps.now);
+  if (rows.length === 0) return [none];
   const items: string[] = [];
   for (const row of rows) {
     const label = `${time(row.at)} US ${US_RELEASE_INFO[row.event].label}`;
@@ -264,6 +342,78 @@ async function newsItems(deps: NotifyDeps, back: LookBack): Promise<string[]> {
     : [
         `No headlines on what you follow ${back.days === 1 ? 'in the last 24 hours' : `since ${back.day} morning`}.`,
       ];
+}
+
+/** Each watched market now, from IG, with what was alerted on it today. */
+async function watchlistItems(deps: NotifyDeps): Promise<{ lines: string[]; moves: string[] }> {
+  const state = await marketsState(deps);
+  if (!state.available) return { lines: ['Prices from IG are not set up yet.'], moves: [] };
+  if (!state.watch) {
+    return {
+      lines: ['You are not watching any markets yet. Add them under Market moves.'],
+      moves: [],
+    };
+  }
+  if (state.problem) return { lines: [state.problem], moves: [] };
+  const lines: string[] = [];
+  const moves: string[] = [];
+  for (const quote of state.quotes) {
+    if (quote.price === null || quote.changePct === null) {
+      lines.push(`${quote.name}: no price just now.`);
+      continue;
+    }
+    const step = state.watch.markets.find((m) => m.epic === quote.epic)?.stepPct ?? 1;
+    const pct = (steps: number) => `${Number((steps * step).toFixed(2))}%`;
+    const alerted = [
+      ...(quote.alertedUp > 0 ? [`+${pct(quote.alertedUp)}`] : []),
+      ...(quote.alertedDown < 0 ? [`−${pct(-quote.alertedDown)}`] : []),
+    ];
+    const crossed = (quote.crossed ?? []).map(
+      (c) => `${c.way === 'up' ? 'above' : 'below'} ${formatPrice(c.level, quote.decimals)}`,
+    );
+    const notes = [
+      ...(alerted.length ? [`Alerted at ${alerted.join(' and ')}.`] : []),
+      ...(crossed.length ? [`Crossed ${crossed.join(' and ')}.`] : []),
+    ];
+    const move = describeMove(quote.changePct);
+    lines.push(
+      [
+        `${quote.name}: ${formatPrice(quote.price, quote.decimals)}, ${move} on the day.`,
+        ...notes,
+      ].join(' '),
+    );
+    moves.push(`${quote.name} ${move}`);
+  }
+  return { lines, moves };
+}
+
+/** Topics that count as alerts in the recap; briefings and tests do not. */
+const ALERT_TOPICS = new Set<NotificationTopic>([
+  'calendar',
+  'price',
+  'loss-limit',
+  'release',
+  'news',
+  'session-rule',
+]);
+
+/** The alerts sent since midnight, oldest first, keeping the latest when there are many. */
+async function alertsToday(deps: NotifyDeps): Promise<{ lines: string[]; count: number }> {
+  const since = midnight(deps);
+  const today = (await deps.store.listNotifications(500))
+    .map((n) => n.event)
+    .filter((e) => Date.parse(e.createdAt) >= since && ALERT_TOPICS.has(e.topic))
+    .reverse();
+  if (today.length === 0) return { lines: ['No alerts were sent today.'], count: 0 };
+  const shown = today.length > MAX_ITEMS ? today.slice(-(MAX_ITEMS - 1)) : today;
+  const lines = shown.map((e) => `${localTime(deps.config, e.createdAt)} ${e.title}`);
+  return {
+    lines:
+      shown.length < today.length
+        ? [`${today.length} alerts today; the latest ${shown.length} are below.`, ...lines]
+        : lines,
+    count: today.length,
+  };
 }
 
 /** The notification body's limit, and WhatsApp's for a template field. */
@@ -318,16 +468,23 @@ const plain = (list: string[]): BriefItem[] => list.map((text) => ({ text }));
 export async function buildBrief(
   deps: NotifyDeps,
   sections: BriefingSection[],
+  kind: BriefingKind = 'morning-brief',
 ): Promise<BuiltBrief> {
+  if (kind === 'weekly-review') return buildWeekly(deps, sections);
   const { config, now } = deps;
+  const recap = kind === 'end-of-day';
   const time = (at: number) => localTime(config, new Date(at).toISOString());
-  const wanted = OFFERED.filter((s) => sections.includes(s));
+  const wanted = OFFERED[kind].filter((s) => sections.includes(s));
   const none: { today: DayEvent[]; next?: DayEvent } = { today: [] };
   const noMarkets: Markets = { lines: [], moves: [] };
   const back = lookBack(deps);
-  // Release dates are refreshed first, as yesterday's results read the same stored schedule.
-  const day = wanted.includes('releases') ? await events(deps) : none;
-  const [market, moved, headlines, results, news] = await Promise.all([
+  const next = ahead(deps);
+  // The morning brief lists today's events; the recap lists the next weekday's.
+  const calendar = wanted.includes(recap ? 'tomorrow' : 'releases');
+  const when = !recap ? 'today' : next.offset === 1 ? 'tomorrow' : `on ${next.day}`;
+  // Release dates are refreshed first, as the results read the same stored schedule.
+  const day = calendar ? await events(deps, recap ? next.offset : 0) : none;
+  const [market, moved, headlines, results, news, watched, alerts] = await Promise.all([
     wanted.includes('markets') || wanted.includes('movers')
       ? markets(config, deps.fetch, now)
       : noMarkets,
@@ -340,8 +497,14 @@ export async function buildBrief(
     wanted.includes('headlines')
       ? yesterdayDigest(deps, dayKeyIn(config.TIMEZONE, new Date(now)), digestPeriod(back))
       : [],
-    wanted.includes('results') ? yesterdayResults(deps, back) : [],
+    !wanted.includes('results')
+      ? []
+      : recap
+        ? publishedResults(deps, midnight(deps), now, 'No scheduled US releases today.')
+        : yesterdayResults(deps, back),
     wanted.includes('news') ? newsItems(deps, back) : [],
+    wanted.includes('watchlist') ? watchlistItems(deps) : { lines: [], moves: [] },
+    wanted.includes('alerts') ? alertsToday(deps) : { lines: [], count: 0 },
   ]);
 
   const releaseItems: BriefItem[] = day.today.length
@@ -350,7 +513,7 @@ export async function buildBrief(
         return e.high ? { text, strong: text } : { text };
       })
     : plain([
-        'No US releases and no Fed, Bank of England or ECB decisions today.',
+        `No US releases and no Fed, Bank of England or ECB decisions ${when}.`,
         ...(day.next
           ? [
               `Next high-severity event: ${longDay(deps, day.next.at)}, ${time(day.next.at)} ${day.next.label}.`,
@@ -372,39 +535,65 @@ export async function buildBrief(
     results: plain(results),
     releases: releaseItems,
     news: plain(news),
+    watchlist: plain(watched.lines),
+    alerts: plain(alerts.lines),
+    tomorrow: releaseItems,
   };
-  const title = `Morning brief, ${longDay(deps, now)}`;
+  const title = `${recap ? 'End-of-day recap' : 'Morning brief'}, ${longDay(deps, now)}`;
   const shown = wanted.map((id) => ({
     id,
-    heading: heading(id, back),
+    heading: heading(id, kind, back, next),
     items: (items[id] ?? [])
       .slice(0, MAX_ITEMS)
       .map((i) => ({ ...i, text: i.text.slice(0, MAX_ITEM_LENGTH) })),
   }));
   const briefing: Briefing = {
-    kind: 'morning-brief',
+    kind,
     title,
     generatedAt: new Date(now).toISOString(),
     sections: shown.map((s) => ({ ...s, items: s.items.map((i) => i.text) })),
   };
 
-  const parts: SummaryPart[] = [
-    ...(wanted.includes('releases')
+  const dayPart: SummaryPart[] = !calendar
+    ? []
+    : day.today.length
       ? [
-          day.today.length
-            ? {
-                lead: 'Today: ',
-                items: day.today.map((e) => `${time(e.at)} ${e.label} (${severity(e)})`),
-              }
-            : { lead: '', items: ['No scheduled releases or central bank decisions today'] },
+          {
+            lead: !recap ? 'Today: ' : next.offset === 1 ? 'Tomorrow: ' : `${next.day}: `,
+            items: day.today.map((e) => `${time(e.at)} ${e.label} (${severity(e)})`),
+          },
         ]
-      : []),
-    ...(wanted.includes('markets') ? [{ lead: 'Last close: ', items: market.moves }] : []),
-    { lead: 'Biggest moves: ', items: moved.moves.slice(0, 3) },
-  ];
+      : [{ lead: '', items: [`No scheduled releases or central bank decisions ${when}`] }];
+  const lastClose = wanted.includes('markets')
+    ? [{ lead: 'Last close: ', items: market.moves }]
+    : [];
+  const parts: SummaryPart[] = recap
+    ? [
+        ...(watched.moves.length ? [{ lead: 'Your markets: ', items: watched.moves }] : []),
+        ...(wanted.includes('alerts')
+          ? [
+              {
+                lead: '',
+                items: [
+                  alerts.count === 0
+                    ? 'No alerts today'
+                    : `${alerts.count} alert${alerts.count === 1 ? '' : 's'} today`,
+                ],
+              },
+            ]
+          : []),
+        ...dayPart,
+        ...lastClose,
+      ]
+    : [...dayPart, ...lastClose, { lead: 'Biggest moves: ', items: moved.moves.slice(0, 3) }];
 
   const notes = [
-    ...(wanted.includes('releases')
+    ...(wanted.includes('watchlist')
+      ? [
+          'Your markets are priced from IG when this recap was built, with the move from the previous close.',
+        ]
+      : []),
+    ...(calendar
       ? [
           `Times are UK time. Severity is a fixed label for each kind of event: high for central bank decisions and the major US releases (${MAJOR_WORDS}), medium for the others.`,
         ]
@@ -421,7 +610,7 @@ export async function buildBrief(
       : []),
     ...(wanted.includes('headlines')
       ? [
-          `${heading('headlines', back)} covers ${back.days === 1 ? 'the 24 hours to this brief' : `the ${back.days * 24} hours since ${back.day}’s brief`}, from BBC News and Benzinga, summarised by Claude from the stories named.`,
+          `${heading('headlines', kind, back, next)} covers ${back.days === 1 ? 'the 24 hours to this brief' : `the ${back.days * 24} hours since ${back.day}’s brief`}, from BBC News and Benzinga, summarised by Claude from the stories named.`,
         ]
       : []),
     'Facts only, with no recommendations or forecasts.',
@@ -434,7 +623,7 @@ export async function buildBrief(
   ].join('\n');
 
   const legend =
-    wanted.includes('markets') || wanted.includes('movers') || wanted.includes('releases')
+    wanted.includes('markets') || wanted.includes('movers') || calendar
       ? [
           `Bold marks moves of ${BIG_MOVE.fund}% or more (${BIG_MOVE.currency}% for currencies, ${BIG_MOVE.crypto}% for Bitcoin), the biggest moves and high-severity events.`,
         ]
@@ -447,6 +636,120 @@ export async function buildBrief(
     text,
     emailHtml: (footer) =>
       briefHtml({ title, sections: shown, notes: [...legend, ...notes], footer }),
+  };
+}
+
+/** How the weekly review groups the alerts it counts. */
+const WEEK_GROUPS: Array<{ label: string; topics: NotificationTopic[] }> = [
+  { label: 'Market moves and levels', topics: ['price'] },
+  { label: 'Releases', topics: ['release'] },
+  { label: 'News', topics: ['news'] },
+  { label: 'Rule watch', topics: ['loss-limit', 'session-rule'] },
+  { label: 'Meetings', topics: ['calendar'] },
+];
+
+const JOURNAL_PROMPTS = [
+  'What was your plan for the week, and how did your trades compare with it?',
+  'Which of your rules did you think about most this week, and when?',
+  'What would you keep, and what would you change, in next week’s routine?',
+];
+
+/**
+ * The weekly review: the alerts sent since Monday by kind, the figures this week's US releases
+ * published, journal prompts, and next week's releases and central bank decisions.
+ */
+async function buildWeekly(deps: NotifyDeps, sections: BriefingSection[]): Promise<BuiltBrief> {
+  const { config, now } = deps;
+  const wanted = OFFERED['weekly-review'].filter((s) => sections.includes(s));
+  const today = dayKeyIn(config.TIMEZONE, new Date(now));
+  const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
+  const monday = midnight(deps, weekday === 0 ? -6 : 1 - weekday);
+  const toNextMonday = (8 - weekday) % 7 || 7;
+  const day = new Intl.DateTimeFormat('en-GB', {
+    timeZone: config.TIMEZONE,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+  const when = (at: number) =>
+    `${day.format(new Date(at))}, ${localTime(config, new Date(at).toISOString())}`;
+
+  const ahead = wanted.includes('next-week')
+    ? await events(deps, toNextMonday, 5)
+    : { today: [] as DayEvent[] };
+  const [notes, results] = await Promise.all([
+    wanted.includes('week-alerts') ? deps.store.listNotifications(1000) : [],
+    wanted.includes('week-results')
+      ? publishedResults(deps, monday, now, 'No scheduled US releases this week.')
+      : [],
+  ]);
+  const week = notes.map((n) => n.event).filter((e) => Date.parse(e.createdAt) >= monday);
+  const counted = WEEK_GROUPS.map((g) => ({
+    label: g.label,
+    count: week.filter((e) => g.topics.includes(e.topic)).length,
+  })).filter((g) => g.count > 0);
+  const total = counted.reduce((sum, g) => sum + g.count, 0);
+
+  const items: Partial<Record<BriefingSection, BriefItem[]>> = {
+    'week-alerts': plain(
+      counted.length ? counted.map((g) => `${g.label}: ${g.count}.`) : ['No alerts this week.'],
+    ),
+    'week-results': plain(results),
+    journal: plain(JOURNAL_PROMPTS),
+    'next-week': ahead.today.length
+      ? ahead.today.map((e) => {
+          const text = `${when(e.at)} ${e.label}, ${severity(e)} severity.`;
+          return e.high ? { text, strong: text } : { text };
+        })
+      : plain(['No US releases and no Fed, Bank of England or ECB decisions next week.']),
+  };
+  const title = `Weekly review, ${longDay(deps, now)}`;
+  const shown = wanted.map((id) => ({
+    id,
+    heading: BRIEFING_SECTION_LABELS[id],
+    items: (items[id] ?? [])
+      .slice(0, MAX_ITEMS)
+      .map((i) => ({ ...i, text: i.text.slice(0, MAX_ITEM_LENGTH) })),
+  }));
+  const briefing: Briefing = {
+    kind: 'weekly-review',
+    title,
+    generatedAt: new Date(now).toISOString(),
+    sections: shown.map((s) => ({ ...s, items: s.items.map((i) => i.text) })),
+  };
+  const high = ahead.today.filter((e) => e.high);
+  const parts: SummaryPart[] = [
+    ...(wanted.includes('week-alerts')
+      ? [{ lead: '', items: [`${total} alert${total === 1 ? '' : 's'} this week`] }]
+      : []),
+    ...(wanted.includes('next-week')
+      ? [
+          high.length
+            ? { lead: 'Next week: ', items: high.map((e) => `${when(e.at)} ${e.label}`) }
+            : { lead: '', items: ['No high-severity events next week'] },
+        ]
+      : []),
+  ];
+  const notesText = [
+    ...(wanted.includes('next-week')
+      ? [
+          `Times are UK time. Severity is a fixed label for each kind of event: high for central bank decisions and the major US releases (${MAJOR_WORDS}), medium for the others.`,
+        ]
+      : []),
+    'Facts only, with no recommendations or forecasts.',
+  ];
+  const text = [
+    title,
+    ...briefing.sections.flatMap((s) => ['', s.heading, ...s.items.map((i) => `- ${i}`)]),
+    '',
+    ...notesText,
+  ].join('\n');
+  return {
+    briefing,
+    summary: fitted(parts, SUMMARY_LENGTH) || title,
+    short: fitted(parts, WHATSAPP_LENGTH) || title,
+    text,
+    emailHtml: (footer) => briefHtml({ title, sections: shown, notes: notesText, footer }),
   };
 }
 
@@ -466,11 +769,11 @@ async function deliverBrief(
     scheduled: true,
     emailText: built.text,
     emailHtml: built.emailHtml,
-    whatsapp: updateTemplate(deps.config, 'your morning brief', built.short),
+    whatsapp: updateTemplate(deps.config, WHATSAPP_SUBJECT[schedule.kind], built.short),
   });
-  const saved = await loadBrief(deps.store);
+  const saved = await loadBrief(deps.store, schedule.kind);
   await deps.store.putSetting(
-    SCHEDULE_KEY,
+    scheduleKey(schedule.kind),
     JSON.stringify({ ...saved, lastSentAt: event.createdAt }),
     deps.now,
   );
@@ -482,19 +785,22 @@ export async function sendBrief(
   deps: NotifyDeps,
   schedule: BriefingSchedule,
 ): Promise<NotificationEvent> {
-  return deliverBrief(deps, schedule, await buildBrief(deps, schedule.sections));
+  return deliverBrief(deps, schedule, await buildBrief(deps, schedule.sections, schedule.kind));
 }
 
 export type BriefOutcome = { status: 'off' } | { status: 'ok'; sent: boolean };
 
 /**
- * Called every minute: sends the day's brief once, at the set time on the chosen days. The brief
- * is built before the day is claimed, so a run cut short by the platform is tried again next
- * minute instead of losing the day's brief.
+ * Called every minute for each kind: sends the day's briefing once, at the set time on the chosen
+ * days. It is built before the day is claimed, so a run cut short by the platform is tried again
+ * next minute instead of losing the day's briefing.
  */
-export async function runBrief(deps: NotifyDeps): Promise<BriefOutcome> {
+export async function runBrief(
+  deps: NotifyDeps,
+  kind: BriefingKind = 'morning-brief',
+): Promise<BriefOutcome> {
   const { config, store, now } = deps;
-  const schedule = await loadBrief(store);
+  const schedule = await loadBrief(store, kind);
   if (!schedule.enabled) return { status: 'off' };
   const clock = localClock(config.TIMEZONE, new Date(now));
   const [hours = 0, minutes = 0] = schedule.time.split(':').map(Number);
@@ -504,12 +810,12 @@ export async function runBrief(deps: NotifyDeps): Promise<BriefOutcome> {
     !schedule.days.includes(clock.weekday) ||
     late < 0 ||
     late >= LATE_MINUTES ||
-    (await store.getSetting(SENT_KEY)) === today
+    (await store.getSetting(sentKey(kind))) === today
   ) {
     return { status: 'ok', sent: false };
   }
-  const built = await buildBrief(deps, schedule.sections);
-  const key = `briefing|morning-brief|${today}`;
+  const built = await buildBrief(deps, schedule.sections, kind);
+  const key = `briefing|${kind}|${today}`;
   if (!(await store.claimReminder(key, now))) return { status: 'ok', sent: false };
   try {
     await deliverBrief(deps, schedule, built);
@@ -518,6 +824,6 @@ export async function runBrief(deps: NotifyDeps): Promise<BriefOutcome> {
     await store.releaseReminder(key);
     throw error;
   }
-  await store.putSetting(SENT_KEY, today, now);
+  await store.putSetting(sentKey(kind), today, now);
   return { status: 'ok', sent: true };
 }

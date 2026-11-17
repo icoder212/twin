@@ -9,6 +9,7 @@ import {
 } from '@twindesk/core';
 import { igReady, marketSnapshots, mid, type IgDeps, type IgSnapshot } from './ig';
 import { notify } from './notify';
+import { loadSessions } from './session-notes';
 import { loadPreferences } from './settings';
 import type { Store } from './store';
 import { updateTemplate } from './whatsapp';
@@ -16,7 +17,8 @@ import { updateTemplate } from './whatsapp';
 /**
  * Market move alerts. Each minute the watched markets are read from IG in one request. An alert
  * goes out the first time a market's move on the day reaches each whole step, up or down: +1%,
- * +2%... and -1%, -2%... with a 1% step. A new trading day starts the steps again.
+ * +2%... and -1%, -2%... with a 1% step. A new trading day starts the steps again. A level the
+ * owner set alerts when the price crosses it, once each way a trading day.
  */
 
 const WATCH_KEY = 'market-watch';
@@ -24,11 +26,20 @@ const STATE_KEY = 'market-moves-state';
 /** A ceiling on alerts a day, so a wild session cannot run up messaging costs. */
 export const MAX_MOVE_ALERTS_PER_DAY = 40;
 
+/** The side of a level the price was last seen on, and the crossings sent today. */
+interface LevelState {
+  side: 'above' | 'below';
+  up?: boolean;
+  down?: boolean;
+}
+
 interface MarketMoveState {
   /** The previous close the day's change is measured from; a new value means a new day. */
   basis: number;
   up: number;
   down: number;
+  /** Keyed by the level as written, e.g. "4000". */
+  levels?: Record<string, LevelState>;
 }
 
 interface MovesState {
@@ -77,7 +88,7 @@ function sameClose(a: number, b: number): boolean {
   return Math.abs(a - b) <= Math.abs(b) * 1e-7;
 }
 
-function formatPrice(value: number, decimals: number): string {
+export function formatPrice(value: number, decimals: number): string {
   return new Intl.NumberFormat('en-GB', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
@@ -86,7 +97,15 @@ function formatPrice(value: number, decimals: number): string {
 
 export type MarketMovesOutcome = { status: 'off' } | { status: 'ok'; sent: number; error?: string };
 
-/** One run: read the watched markets and send any new steps. */
+/** A new trading day keeps the side of each level, as a price can cross one overnight. */
+function newDay(basis: number, known: MarketMoveState | undefined): MarketMoveState {
+  const levels = Object.fromEntries(
+    Object.entries(known?.levels ?? {}).map(([key, level]) => [key, { side: level.side }]),
+  );
+  return { basis, up: 0, down: 0, levels };
+}
+
+/** One run: read the watched markets and send any new steps and level crossings. */
 export async function runMarketMoves(deps: IgDeps): Promise<MarketMovesOutcome> {
   const { config, store, now } = deps;
   const watch = await loadMarketWatch(store);
@@ -109,6 +128,30 @@ export async function runMarketMoves(deps: IgDeps): Promise<MarketMovesOutcome> 
   let sent = 0;
   let firstError: string | undefined;
 
+  /** True when the alert is dealt with: sent, or over the day's ceiling. False to try again. */
+  const send = async (alert: { title: string; body: string; whatsapp: string; name: string }) => {
+    if (state.sent >= MAX_MOVE_ALERTS_PER_DAY) return true;
+    try {
+      await notify(
+        { config, store, fetch: deps.fetch, now },
+        {
+          topic: 'price',
+          urgency: 'important',
+          title: alert.title,
+          body: alert.body,
+          href: '/notifications',
+          whatsapp: updateTemplate(config, alert.name, alert.whatsapp),
+        },
+      );
+      state.sent += 1;
+      sent += 1;
+      return true;
+    } catch (error) {
+      firstError ??= error instanceof Error ? error.message : 'Could not send';
+      return false;
+    }
+  };
+
   for (const market of watch.markets) {
     const snapshot = snapshots.get(market.epic);
     const basis = snapshot ? previousClose(snapshot) : null;
@@ -118,43 +161,55 @@ export async function runMarketMoves(deps: IgDeps): Promise<MarketMovesOutcome> 
       continue;
     }
     const current =
-      known && sameClose(known.basis, basis) ? { ...known } : { basis, up: 0, down: 0 };
+      known && sameClose(known.basis, basis)
+        ? { ...known, levels: { ...known.levels } }
+        : newDay(basis, known);
     markets[market.epic] = current;
     // Closed or auction-only markets keep their steps, but their prices are not acted on.
     if (snapshot.status !== 'TRADEABLE') continue;
 
-    const changePct = ((snapshot.bid - basis) / basis) * 100;
-    const level = moveLevel(changePct, market.stepPct);
-    const newStep = (level >= 1 && level > current.up) || (level <= -1 && level < current.down);
-    if (!newStep) continue;
-    if (level > 0) current.up = level;
-    else current.down = level;
-    if (state.sent >= MAX_MOVE_ALERTS_PER_DAY) continue;
-
     const price = mid(snapshot.bid, snapshot.offer) ?? snapshot.bid;
+    const changePct = ((snapshot.bid - basis) / basis) * 100;
     const move = describeMove(changePct);
     const at = formatPrice(price, snapshot.decimals);
-    const change = snapshot.bid - basis;
-    try {
-      await notify(
-        { config, store, fetch: deps.fetch, now },
-        {
-          topic: 'price',
-          urgency: 'important',
-          title: `${market.name} ${move} today`,
-          body: `${market.name} is at ${at}, ${move} (${change >= 0 ? '+' : '−'}${formatPrice(Math.abs(change), snapshot.decimals)}) from the previous close of ${formatPrice(basis, snapshot.decimals)}. Prices from IG. You get an alert at each ${market.stepPct}% step on the day.`,
-          href: '/notifications',
-          whatsapp: updateTemplate(config, market.name, `${move} today at ${at}`),
-        },
-      );
-      state.sent += 1;
-      sent += 1;
-    } catch (error) {
-      // Try this step again next run.
-      if (level > 0) current.up = level - 1;
-      else current.down = level + 1;
-      firstError ??= error instanceof Error ? error.message : 'Could not send';
+
+    const level = moveLevel(changePct, market.stepPct);
+    if ((level >= 1 && level > current.up) || (level <= -1 && level < current.down)) {
+      const change = snapshot.bid - basis;
+      const done = await send({
+        name: market.name,
+        title: `${market.name} ${move} today`,
+        body: `${market.name} is at ${at}, ${move} (${change >= 0 ? '+' : '−'}${formatPrice(Math.abs(change), snapshot.decimals)}) from the previous close of ${formatPrice(basis, snapshot.decimals)}. Prices from IG. You get an alert at each ${market.stepPct}% step on the day.`,
+        whatsapp: `${move} today at ${at}`,
+      });
+      // Not sent: the same step is tried again next run.
+      if (done && level > 0) current.up = level;
+      else if (done) current.down = level;
     }
+
+    const levels: Record<string, LevelState> = {};
+    for (const value of market.levels ?? []) {
+      const key = String(value);
+      const before = current.levels?.[key];
+      const side = price >= value ? 'above' : 'below';
+      levels[key] = { ...before, side };
+      // The first sighting only records the side; a crossing needs a side to cross from.
+      if (!before || before.side === side) continue;
+      const way = side === 'above' ? 'up' : 'down';
+      if (before[way]) continue;
+      const shown = formatPrice(value, snapshot.decimals);
+      const done = await send({
+        name: market.name,
+        title: `${market.name} ${side} ${shown}`,
+        body: `${market.name} crossed ${side} your level of ${shown} and is at ${at}, ${move} on the day. Prices from IG. Each level alerts once each way a day.`,
+        whatsapp: `crossed ${side} ${shown}, now at ${at}`,
+      });
+      if (!done) levels[key] = before;
+      else
+        levels[key] =
+          way === 'up' ? { ...before, side, up: true } : { ...before, side, down: true };
+    }
+    current.levels = levels;
   }
 
   await store.putSetting(STATE_KEY, JSON.stringify({ ...state, markets }), now);
@@ -166,7 +221,13 @@ export async function marketsState(deps: IgDeps): Promise<MarketsState> {
   const { config, store } = deps;
   const watch = await loadMarketWatch(store);
   const { routing } = await loadPreferences(store);
-  const base = { available: igReady(config), watch, channels: routing.price, quotes: [] };
+  const base = {
+    available: igReady(config),
+    watch,
+    channels: routing.price,
+    quotes: [],
+    sessions: await loadSessions(store),
+  };
   if (!watch || !igReady(config)) return base;
   let snapshots: Map<string, IgSnapshot>;
   try {
@@ -194,6 +255,10 @@ export async function marketsState(deps: IgDeps): Promise<MarketsState> {
       decimals: snapshot?.decimals ?? 2,
       alertedUp: today?.up ?? 0,
       alertedDown: today?.down ?? 0,
+      crossed: Object.entries(today?.levels ?? {}).flatMap(([key, level]) => [
+        ...(level.up ? [{ level: Number(key), way: 'up' as const }] : []),
+        ...(level.down ? [{ level: Number(key), way: 'down' as const }] : []),
+      ]),
     };
   });
   return { ...base, quotes };

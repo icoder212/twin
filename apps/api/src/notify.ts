@@ -17,6 +17,7 @@ import type { Config } from './config';
 import { sendEmail } from './email';
 import { loadPreferences, serverContacts, serverPolicy } from './settings';
 import type { Store } from './store';
+import { whatsappCapNote } from './usage';
 import { deliverWhatsApp, type WhatsAppTemplate } from './whatsapp';
 
 export interface NotifyDeps {
@@ -96,11 +97,14 @@ export async function notify(deps: NotifyDeps, input: NotifyInput): Promise<Noti
       escalation: false,
     };
     if (plan.status === 'send' && plan.channel === 'whatsapp') {
+      const capped = input.whatsapp ? await whatsappCapNote(deps) : null;
       if (!input.whatsapp) {
         Object.assign(delivery, {
           status: 'skipped',
           note: 'No WhatsApp template for this alert yet',
         });
+      } else if (capped) {
+        Object.assign(delivery, { status: 'skipped', note: capped });
       } else {
         try {
           const id = await deliverWhatsApp(config, input.whatsapp, fetch);

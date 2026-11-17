@@ -4,9 +4,10 @@ import { seal, unseal } from './crypto';
 import type { Store } from './store';
 
 /**
- * IG's Web API, for prices only. The login is kept sealed with TOKEN_KEY and reused until IG ends
- * it, so the server logs in a few times a day rather than every minute. Nothing here can place,
- * change or close a trade: only market search and market details are ever requested.
+ * IG's Web API, read only. The login is kept sealed with TOKEN_KEY and reused until IG ends it, so
+ * the server logs in a few times a day rather than every minute. Nothing here can place, change or
+ * close a trade: only market search, market details, the account balance and open positions are
+ * ever requested, all with GET.
  */
 
 export class IgError extends Error {
@@ -209,4 +210,78 @@ export async function marketSnapshots(
 export function mid(bid: number | null | undefined, offer: number | null | undefined) {
   if (typeof bid !== 'number') return null;
   return typeof offer === 'number' ? (bid + offer) / 2 : bid;
+}
+
+const accountsSchema = z.object({
+  accounts: z.array(
+    z.object({
+      accountName: z.string(),
+      accountType: z.string(),
+      preferred: z.boolean(),
+      currency: z.string(),
+      balance: z.object({ balance: z.number(), profitLoss: z.number() }),
+    }),
+  ),
+});
+
+const positionsSchema = z.object({
+  positions: z.array(
+    z.object({
+      position: z.object({
+        size: z.number(),
+        direction: z.enum(['BUY', 'SELL']),
+        level: z.number(),
+      }),
+      market: z.object({
+        epic: z.string(),
+        instrumentName: z.string(),
+        bid: price,
+        offer: price,
+      }),
+    }),
+  ),
+});
+
+export interface IgAccount {
+  name: string;
+  type: string;
+  currency: string;
+  balance: number;
+  profitLoss: number;
+}
+
+/** The account the login uses by default: its balance and open profit or loss. */
+export async function preferredAccount(deps: IgDeps): Promise<IgAccount> {
+  const { accounts } = await igGet(deps, '/accounts', '1', accountsSchema);
+  const account = accounts.find((a) => a.preferred) ?? accounts[0];
+  if (!account) throw new IgError('IG has no account for this login');
+  return {
+    name: account.accountName,
+    type: account.accountType,
+    currency: account.currency,
+    balance: account.balance.balance,
+    profitLoss: account.balance.profitLoss,
+  };
+}
+
+export interface IgPosition {
+  epic: string;
+  name: string;
+  direction: 'BUY' | 'SELL';
+  size: number;
+  level: number;
+  /** Where it would close now: the bid for a buy, the offer for a sell. */
+  price: number | null;
+}
+
+export async function openPositions(deps: IgDeps): Promise<IgPosition[]> {
+  const { positions } = await igGet(deps, '/positions', '2', positionsSchema);
+  return positions.map(({ position, market }) => ({
+    epic: market.epic,
+    name: market.instrumentName,
+    direction: position.direction,
+    size: position.size,
+    level: position.level,
+    price: (position.direction === 'BUY' ? market.bid : market.offer) ?? null,
+  }));
 }

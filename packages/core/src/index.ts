@@ -14,6 +14,8 @@ export * from './domain/economic';
 export * from './domain/news';
 export * from './domain/instructions';
 export * from './domain/markets';
+export * from './domain/usage';
+export * from './domain/rule-watch';
 
 // API contract and transport
 export * from './api/contracts';

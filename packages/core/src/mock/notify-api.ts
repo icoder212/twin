@@ -100,6 +100,19 @@ const TOMORROW = [
   '15:00 USD New home sales (medium impact)',
 ];
 
+const WATCHLIST = [
+  'US Tech 100: 21,384.2, up 1.3% on the day. Alerted at +1%.',
+  'Spot Gold: 3,312.6, down 0.4% on the day.',
+  'Wall Street: 42,180.0, up 0.6% on the day. Crossed above 42,000.0.',
+];
+
+const ALERTS_TODAY = [
+  '13:20 Reminder: US Producer prices (PPI) at 13:30',
+  '13:31 US Producer prices (PPI) figures published',
+  '14:32 US Tech 100 up 1.0% today',
+  '16:05 Wall Street above 42,000.0',
+];
+
 const JOURNAL_PROMPTS = [
   'What was your plan before the session, and how did today’s trades compare with it?',
   'Which rule did you think about most today, and when?',
@@ -316,6 +329,16 @@ export function createNotifyApi(deps: NotifyDeps) {
         `Daily loss: ${rw.dailyLossUsedPct}% of ${rw.dailyLossLimitPct}% used. Drawdown: ${rw.drawdownUsedPct}% of ${rw.maxDrawdownPct}%.`,
         'No rule breaches recorded today.',
       ],
+      watchlist: () => WATCHLIST,
+      alerts: () => ALERTS_TODAY,
+      'week-alerts': () => [
+        'Market moves and levels: 9.',
+        'Releases: 6.',
+        'Rule watch: 1.',
+        'Meetings: 4.',
+      ],
+      'week-results': () => RESULTS,
+      'next-week': () => TOMORROW,
       journal: () => JOURNAL_PROMPTS,
       tomorrow: () => TOMORROW,
     };

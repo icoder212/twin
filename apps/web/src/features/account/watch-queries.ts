@@ -6,12 +6,18 @@ import {
   marketSearchResultSchema,
   marketsStateSchema,
   newsStateSchema,
+  ruleWatchStateSchema,
+  usageSchema,
+  type MarketSessionsUpdate,
   type MarketsState,
   type MarketWatchUpdate,
   type EconomicState,
   type EconomicWatchUpdate,
   type NewsState,
   type NewsWatchUpdate,
+  type RuleWatchState,
+  type RuleWatchUpdate,
+  type UsageCapUpdate,
 } from '@twindesk/core';
 import { qk } from '@/app/query-keys';
 import { realRequest, useRealAccount } from './real-account';
@@ -30,7 +36,7 @@ export function useEconomic() {
   });
 }
 
-function useStateUpdate<T extends EconomicState | NewsState | MarketsState>(
+function useStateUpdate<T extends EconomicState | NewsState | MarketsState | RuleWatchState>(
   key: readonly string[],
 ) {
   const queryClient = useQueryClient();
@@ -133,11 +139,69 @@ export function useSaveMarkets() {
   });
 }
 
+export function useSaveSessions() {
+  const update = useStateUpdate<MarketsState>(qk.markets);
+  return useMutation({
+    mutationFn: (body: MarketSessionsUpdate) =>
+      realRequest('/v1/markets/sessions', { method: 'PUT', body, schema: marketsStateSchema }),
+    onSuccess: update,
+  });
+}
+
 export function useStopMarkets() {
   const update = useStateUpdate<MarketsState>(qk.markets);
   return useMutation({
     mutationFn: () =>
       realRequest('/v1/markets/watch', { method: 'DELETE', schema: marketsStateSchema }),
+    onSuccess: update,
+  });
+}
+
+/** Messages sent this month and what WhatsApp has cost, refreshed each minute while open. */
+export function useUsage() {
+  const signedIn = useRealAccount((s) => s.status.signedIn);
+  return useQuery({
+    queryKey: qk.usage,
+    queryFn: () => realRequest('/v1/usage', { schema: usageSchema }),
+    enabled: signedIn,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useSaveUsageCap() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UsageCapUpdate) =>
+      realRequest('/v1/usage/cap', { method: 'PUT', body, schema: usageSchema }),
+    onSuccess: (usage) => queryClient.setQueryData(qk.usage, usage),
+  });
+}
+
+/** The IG account against the owner's limits, refreshed each minute while the page is open. */
+export function useRuleWatch() {
+  const signedIn = useRealAccount((s) => s.status.signedIn);
+  return useQuery({
+    queryKey: qk.rules,
+    queryFn: () => realRequest('/v1/rules', { schema: ruleWatchStateSchema }),
+    enabled: signedIn,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useSaveRules() {
+  const update = useStateUpdate<RuleWatchState>(qk.rules);
+  return useMutation({
+    mutationFn: (body: RuleWatchUpdate) =>
+      realRequest('/v1/rules/watch', { method: 'PUT', body, schema: ruleWatchStateSchema }),
+    onSuccess: update,
+  });
+}
+
+export function useStopRules() {
+  const update = useStateUpdate<RuleWatchState>(qk.rules);
+  return useMutation({
+    mutationFn: () =>
+      realRequest('/v1/rules/watch', { method: 'DELETE', schema: ruleWatchStateSchema }),
     onSuccess: update,
   });
 }

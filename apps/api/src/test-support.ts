@@ -1,7 +1,7 @@
 // Shared by the server's tests: settings for a made-up deployment and an in-memory store.
 import type { Config } from './config';
 import { toBase64Url } from './crypto';
-import type { GoogleLink, ReleaseRow, Store, StoredNotification } from './store';
+import type { DeliveryCount, GoogleLink, ReleaseRow, Store, StoredNotification } from './store';
 
 export const KEY = toBase64Url(new Uint8Array(32).fill(7));
 export const APP = 'https://twin.example.com';
@@ -100,6 +100,19 @@ export function memoryStore() {
     },
     async getNotification(id) {
       return notifications.get(id) ?? null;
+    },
+    async countDeliveries(since) {
+      const counts = new Map<string, DeliveryCount>();
+      for (const { event } of notifications.values()) {
+        if (Date.parse(event.createdAt) < since) continue;
+        for (const d of event.deliveries) {
+          const key = `${d.channel}|${d.status}`;
+          const row = counts.get(key) ?? { channel: d.channel, status: d.status, count: 0 };
+          row.count += 1;
+          counts.set(key, row);
+        }
+      }
+      return [...counts.values()];
     },
     async listNotifications(limit) {
       return [...notifications.values()]

@@ -4,8 +4,8 @@ import { deliveryChannelSchema } from './notifications';
 
 /**
  * Market move alerts: the owner's watchlist of markets, and an alert each time a market's move on
- * the day reaches a new whole step (1% by default), up or down. Facts only: the level, the move
- * and the previous close, never what to do about it.
+ * the day reaches a new whole step (1% by default), up or down, or its price crosses a level the
+ * owner set. Facts only: the level, the move and the previous close, never what to do about it.
  */
 
 /** A market's identifier at the price source, e.g. IG's IX.D.NASDAQ.CASH.IP. */
@@ -17,12 +17,21 @@ export const marketEpicSchema = z
 export const MARKET_STEP_CHOICES = [0.5, 1, 2, 3] as const;
 export const DEFAULT_MARKET_STEP = 1;
 export const MAX_WATCHED_MARKETS = 20;
+export const MAX_MARKET_LEVELS = 5;
 
 export const watchedMarketSchema = z.object({
   epic: marketEpicSchema,
   name: z.string().trim().min(1).max(80),
   /** An alert goes out each time the move on the day reaches a new multiple of this. */
   stepPct: z.number().min(0.25).max(10),
+  /** Prices to alert on when crossed: once each way a trading day. */
+  levels: z
+    .array(z.number().positive())
+    .max(MAX_MARKET_LEVELS, `Set up to ${MAX_MARKET_LEVELS} levels a market`)
+    .refine((list) => new Set(list).size === list.length, {
+      message: 'Each level can be set once',
+    })
+    .optional(),
 });
 export type WatchedMarket = z.infer<typeof watchedMarketSchema>;
 
@@ -36,6 +45,27 @@ export const marketWatchSchema = z.object({
     }),
 });
 export type MarketWatch = z.infer<typeof marketWatchSchema>;
+
+/** Market opens a note can go out before: 10 minutes ahead, on weekdays. */
+export const MARKET_SESSIONS = ['london', 'new-york'] as const;
+export const marketSessionSchema = z.enum(MARKET_SESSIONS);
+export type MarketSession = z.infer<typeof marketSessionSchema>;
+
+export const MARKET_SESSION_INFO: Record<
+  MarketSession,
+  { label: string; zone: string; opens: string }
+> = {
+  london: { label: 'London', zone: 'Europe/London', opens: '08:00' },
+  'new-york': { label: 'New York', zone: 'America/New_York', opens: '09:30' },
+};
+
+export const marketSessionsUpdateSchema = z.object({
+  sessions: z
+    .array(marketSessionSchema)
+    .max(MARKET_SESSIONS.length)
+    .refine((list) => new Set(list).size === list.length, { message: 'Each open can be set once' }),
+});
+export type MarketSessionsUpdate = z.infer<typeof marketSessionsUpdateSchema>;
 
 export const marketWatchUpdateSchema = z.object({
   watch: marketWatchSchema,
@@ -58,6 +88,11 @@ export const marketQuoteSchema = z.object({
   /** Steps alerted today on each side: 2 means the +2 step was sent; -1 the -1 step. */
   alertedUp: z.number().int().min(0),
   alertedDown: z.number().int().max(0),
+  /** Levels crossed today, each with the way it was crossed. */
+  crossed: z
+    .array(z.object({ level: z.number(), way: z.enum(['up', 'down']) }))
+    .max(MAX_MARKET_LEVELS * 2)
+    .optional(),
 });
 export type MarketQuote = z.infer<typeof marketQuoteSchema>;
 
@@ -81,6 +116,8 @@ export const marketsStateSchema = z.object({
   /** Where market moves go now, the app included. */
   channels: z.array(deliveryChannelSchema),
   quotes: z.array(marketQuoteSchema).max(MAX_WATCHED_MARKETS),
+  /** The opens a note goes out before. */
+  sessions: z.array(marketSessionSchema).max(MARKET_SESSIONS.length),
   /** Why prices are missing, in plain words, when they are. */
   problem: z.string().max(200).optional(),
 });

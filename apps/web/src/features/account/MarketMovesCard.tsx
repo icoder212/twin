@@ -6,11 +6,15 @@ import {
   Plus,
   Search,
   Trash2,
+  X,
 } from 'lucide-react';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import {
   DEFAULT_MARKET_STEP,
+  MARKET_SESSION_INFO,
+  MARKET_SESSIONS,
   MARKET_STEP_CHOICES,
+  MAX_MARKET_LEVELS,
   MAX_WATCHED_MARKETS,
   type MarketQuote,
   type MarketSearchResult,
@@ -28,7 +32,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/sha
 import { Skeleton } from '@/shared/ui/feedback';
 import { Checkbox, Input, Select } from '@/shared/ui/field';
 import { useRealAccount } from './real-account';
-import { useMarketSearch, useMarkets, useSaveMarkets, useStopMarkets } from './watch-queries';
+import {
+  useMarketSearch,
+  useMarkets,
+  useSaveMarkets,
+  useSaveSessions,
+  useStopMarkets,
+} from './watch-queries';
 import { listChannels } from './watch-text';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -58,7 +68,8 @@ function stepLabel(step: number): string {
 
 /**
  * On the Notifications page, with the real account: the markets the owner watches, saved on the
- * server. An alert goes out each time a market's move on the day reaches a new step.
+ * server. An alert goes out each time a market's move on the day reaches a new step, or its price
+ * crosses a level the owner set.
  */
 export function MarketMovesCard() {
   const signedIn = useRealAccount((s) => s.status.signedIn);
@@ -73,8 +84,9 @@ export function MarketMovesCard() {
           </CardTitle>
           <CardDescription>
             An alert each time a market&apos;s move on the day reaches a new step, up or down: with
-            a 1% step, at +1%, +2% and so on, and at −1%, −2% and so on. Prices come from IG and are
-            checked every minute. Your list is saved to your account.
+            a 1% step, at +1%, +2% and so on, and at −1%, −2% and so on. Add levels to hear when a
+            price crosses them, once each way a day. Prices come from IG and are checked every
+            minute. Your list is saved to your account.
           </CardDescription>
         </div>
       </CardHeader>
@@ -90,6 +102,7 @@ export function MarketMovesCard() {
 function MarketMoves({ state }: { state: MarketsState }) {
   const save = useSaveMarkets();
   const stop = useStopMarkets();
+  const saveSessions = useSaveSessions();
   const watched = state.watch?.markets ?? [];
   const busy = save.isPending || stop.isPending;
   const extra = state.channels.filter((c): c is WatchChannel => c === 'email' || c === 'whatsapp');
@@ -123,6 +136,15 @@ function MarketMoves({ state }: { state: MarketsState }) {
           busy={busy}
           onStep={(epic, stepPct) =>
             commit(watched.map((m) => (m.epic === epic ? { ...m, stepPct } : m)))
+          }
+          onLevels={(epic, levels) =>
+            commit(
+              watched.map((m) => {
+                if (m.epic !== epic) return m;
+                const { levels: _old, ...rest } = m;
+                return levels.length > 0 ? { ...rest, levels } : rest;
+              }),
+            )
           }
           onRemove={(epic) => commit(watched.filter((m) => m.epic !== epic))}
         />
@@ -163,6 +185,36 @@ function MarketMoves({ state }: { state: MarketsState }) {
           </label>
         ))}
       </fieldset>
+
+      <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <legend className="sr-only">Notes before each open</legend>
+        <span className="text-[13px] text-fg-muted">
+          A note 10 minutes before each open, on weekdays, with your markets and what is due in the
+          first hour:
+        </span>
+        {MARKET_SESSIONS.map((session) => {
+          const { label, opens } = MARKET_SESSION_INFO[session];
+          return (
+            <label key={session} className="flex items-center gap-2 text-[13px] text-fg">
+              <Checkbox
+                checked={state.sessions.includes(session)}
+                disabled={saveSessions.isPending}
+                onChange={(e) =>
+                  saveSessions.mutate(
+                    {
+                      sessions: e.target.checked
+                        ? [...state.sessions, session]
+                        : state.sessions.filter((s) => s !== session),
+                    },
+                    { onError: toastError('Could not save the opens') },
+                  )
+                }
+              />
+              {label} open ({opens} {label} time)
+            </label>
+          );
+        })}
+      </fieldset>
     </div>
   );
 }
@@ -172,12 +224,14 @@ function Watchlist({
   quotes,
   busy,
   onStep,
+  onLevels,
   onRemove,
 }: {
   watched: WatchedMarket[];
   quotes: MarketQuote[];
   busy: boolean;
   onStep: (epic: string, stepPct: number) => void;
+  onLevels: (epic: string, levels: number[]) => void;
   onRemove: (epic: string) => void;
 }) {
   return (
@@ -189,6 +243,7 @@ function Watchlist({
           quote={quotes.find((q) => q.epic === market.epic)}
           busy={busy}
           onStep={(step) => onStep(market.epic, step)}
+          onLevels={(levels) => onLevels(market.epic, levels)}
           onRemove={() => onRemove(market.epic)}
         />
       ))}
@@ -201,12 +256,14 @@ function WatchedRow({
   quote,
   busy,
   onStep,
+  onLevels,
   onRemove,
 }: {
   market: WatchedMarket;
   quote: MarketQuote | undefined;
   busy: boolean;
   onStep: (step: number) => void;
+  onLevels: (levels: number[]) => void;
   onRemove: () => void;
 }) {
   const stepId = useId();
@@ -215,48 +272,147 @@ function WatchedRow({
     ...(quote && quote.alertedDown < 0 ? [`−${-quote.alertedDown * market.stepPct}%`] : []),
   ];
   return (
-    <li className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
-      <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-fg">
-          {market.name}
-          {quote && quote.status !== 'TRADEABLE' ? (
-            <Badge tone="neutral">{quote.status === 'CLOSED' ? 'Closed' : 'Not trading'}</Badge>
-          ) : null}
-        </p>
-        <p className="mt-0.5 text-[12px] text-fg-subtle">
-          {sent.length > 0 ? `Alerted today at ${sent.join(' and ')}` : 'No alerts today yet'}
-        </p>
-      </div>
-      <div className="flex items-center gap-3 sm:justify-end">
-        <Move quote={quote} />
-        <label htmlFor={stepId} className="sr-only">
-          Alert step for {market.name}
-        </label>
-        <div className="w-24">
-          <Select
-            id={stepId}
-            value={market.stepPct}
-            disabled={busy}
-            onChange={(e) => onStep(Number(e.target.value))}
-          >
-            {MARKET_STEP_CHOICES.map((step) => (
-              <option key={step} value={step}>
-                Every {stepLabel(step)}
-              </option>
-            ))}
-          </Select>
+    <li className="space-y-3 px-4 py-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="min-w-0 flex-1">
+          <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-fg">
+            {market.name}
+            {quote && quote.status !== 'TRADEABLE' ? (
+              <Badge tone="neutral">{quote.status === 'CLOSED' ? 'Closed' : 'Not trading'}</Badge>
+            ) : null}
+          </p>
+          <p className="mt-0.5 text-[12px] text-fg-subtle">
+            {sent.length > 0 ? `Alerted today at ${sent.join(' and ')}` : 'No alerts today yet'}
+          </p>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Stop watching ${market.name}`}
-          disabled={busy}
-          onClick={onRemove}
-        >
-          <Trash2 />
-        </Button>
+        <div className="flex items-center gap-3 sm:justify-end">
+          <Move quote={quote} />
+          <label htmlFor={stepId} className="sr-only">
+            Alert step for {market.name}
+          </label>
+          <div className="w-24">
+            <Select
+              id={stepId}
+              value={market.stepPct}
+              disabled={busy}
+              onChange={(e) => onStep(Number(e.target.value))}
+            >
+              {MARKET_STEP_CHOICES.map((step) => (
+                <option key={step} value={step}>
+                  Every {stepLabel(step)}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Stop watching ${market.name}`}
+            disabled={busy}
+            onClick={onRemove}
+          >
+            <Trash2 />
+          </Button>
+        </div>
       </div>
+      <Levels market={market} quote={quote} busy={busy} onChange={onLevels} />
     </li>
+  );
+}
+
+/** "4,000" or "4000.5" as typed, or null when it is not a price. */
+function parseLevel(text: string): number | null {
+  const value = Number(text.trim().replace(/,/g, ''));
+  return text.trim() !== '' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** The price levels set on one market, each removable, and a box to add another. */
+function Levels({
+  market,
+  quote,
+  busy,
+  onChange,
+}: {
+  market: WatchedMarket;
+  quote: MarketQuote | undefined;
+  busy: boolean;
+  onChange: (levels: number[]) => void;
+}) {
+  const inputId = useId();
+  const [text, setText] = useState('');
+  const levels = market.levels ?? [];
+  const decimals = quote?.decimals ?? 2;
+  const value = parseLevel(text);
+  const full = levels.length >= MAX_MARKET_LEVELS;
+  const duplicate = value !== null && levels.includes(value);
+
+  const add = (event: FormEvent) => {
+    event.preventDefault();
+    if (value === null || duplicate || full) return;
+    onChange([...levels, value].sort((a, b) => a - b));
+    setText('');
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[12px] text-fg-muted">Levels</span>
+      {levels.length > 0 ? (
+        <ul className="flex flex-wrap gap-1.5" aria-label={`Levels for ${market.name}`}>
+          {levels.map((level) => {
+            const shown = formatNumber(level, decimals);
+            const crossed = (quote?.crossed ?? []).filter((c) => c.level === level);
+            const side =
+              quote?.price == null ? null : quote.price >= level ? 'price above' : 'price below';
+            return (
+              <li key={level}>
+                <Badge tone={crossed.length > 0 ? 'brand' : 'neutral'} className="pr-1">
+                  <span className="font-mono">{shown}</span>
+                  {side ? <span className="font-normal">{side}</span> : null}
+                  {crossed.length > 0 ? <span className="font-normal">crossed today</span> : null}
+                  <button
+                    type="button"
+                    className="rounded-full p-0.5 hover:bg-surface"
+                    aria-label={`Remove level ${shown} for ${market.name}`}
+                    disabled={busy}
+                    onClick={() => onChange(levels.filter((l) => l !== level))}
+                  >
+                    <X aria-hidden />
+                  </button>
+                </Badge>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {full ? (
+        <span className="text-[12px] text-fg-subtle">
+          {MAX_MARKET_LEVELS} levels, the most allowed
+        </span>
+      ) : (
+        <form onSubmit={add} className="flex items-center gap-1.5">
+          <label htmlFor={inputId} className="sr-only">
+            Add a level for {market.name}
+          </label>
+          <Input
+            id={inputId}
+            inputMode="decimal"
+            autoComplete="off"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={quote?.price != null ? formatNumber(quote.price, 0) : 'Price'}
+            className="h-8 w-28 font-mono text-[12px]"
+          />
+          <Button
+            type="submit"
+            size="sm"
+            variant="secondary"
+            disabled={busy || value === null || duplicate}
+          >
+            <Plus aria-hidden /> Level
+          </Button>
+        </form>
+      )}
+    </div>
   );
 }
 

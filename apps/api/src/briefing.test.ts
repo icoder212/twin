@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { runAdviceChecks } from '@twindesk/core';
+import { runAdviceChecks, type NotificationEvent } from '@twindesk/core';
 import { handleApi } from './api';
 import { buildBrief, fitted, loadBrief, runBrief, saveBrief } from './briefing';
 import type { Config } from './config';
+import { runMarketMoves, saveMarketWatch } from './market-moves';
 import { startSession } from './session';
 import { APP, baseConfig, memoryStore } from './test-support';
 
@@ -483,7 +484,16 @@ describe('the briefings API', () => {
   };
 
   it('offers the morning brief with the sections it can fill, and saves it', async () => {
-    const [listed] = (await (await call('/v1/briefings')).json()) as Array<Record<string, unknown>>;
+    const [listed, recap] = (await (await call('/v1/briefings')).json()) as Array<
+      Record<string, unknown>
+    >;
+    expect(recap).toMatchObject({
+      kind: 'end-of-day',
+      enabled: false,
+      time: '21:30',
+      days: [1, 2, 3, 4, 5],
+      offered: ['watchlist', 'markets', 'movers', 'results', 'alerts', 'tomorrow'],
+    });
     expect(listed).toMatchObject({
       kind: 'morning-brief',
       enabled: false,
@@ -508,6 +518,246 @@ describe('the briefings API', () => {
       body: { ...body, sections: ['limits'] },
     });
     expect(refused.status).toBe(422);
-    expect((await call('/v1/briefings/end-of-day/preview')).status).toBe(404);
+    expect((await call('/v1/briefings/end-of-day/preview')).status).toBe(200);
+    expect((await call('/v1/briefings/weekly/preview')).status).toBe(404);
+  });
+});
+
+describe('the end-of-day recap', () => {
+  const NASDAQ = 'IX.D.NASDAQ.CASH.IP';
+  // Thursday 17 December 2026, after the US close.
+  const EVENING = Date.parse('2026-12-17T21:30:00Z');
+  let store: ReturnType<typeof memoryStore>;
+  let net: ReturnType<typeof fakeNetwork>;
+  const deps = (now = EVENING, withConfig = config) => ({
+    config: withConfig,
+    store,
+    fetch: net.fetch,
+    now,
+  });
+
+  const alert = (topic: NotificationEvent['topic'], title: string, at: string) =>
+    store.saveNotification(
+      {
+        id: `nev_${title.length}${at.slice(11, 13)}`,
+        ref: 'NT-ABC123',
+        topic,
+        urgency: 'important',
+        title,
+        body: title,
+        createdAt: at,
+        deliveries: [],
+      },
+      false,
+    );
+
+  beforeEach(async () => {
+    store = memoryStore();
+    net = fakeNetwork();
+    await store.upsertReleases([
+      {
+        key: 'jobless-claims|2026-12-17',
+        event: 'jobless-claims',
+        releaseDate: '2026-12-17',
+        at: Date.parse('2026-12-17T13:30:00Z'),
+      },
+    ]);
+  });
+
+  it('gives today’s figures, the alerts sent today and tomorrow’s events, facts only', async () => {
+    await alert('price', 'US Tech 100 up 1.1% today', '2026-12-17T14:32:00Z');
+    await alert('price', 'Spot Gold above 4,000.0', '2026-12-17T16:05:00Z');
+    // Not counted: yesterday's alert, and a briefing.
+    await alert('price', 'Wall Street down 1.0% today', '2026-12-16T15:00:00Z');
+    await alert('briefing', 'Morning brief, Thursday 17 December', '2026-12-17T08:00:00Z');
+
+    const { briefing, summary, short, text } = await buildBrief(
+      deps(),
+      ['results', 'alerts', 'tomorrow'],
+      'end-of-day',
+    );
+    expect(briefing.kind).toBe('end-of-day');
+    expect(briefing.title).toBe('End-of-day recap, Thursday 17 December');
+    expect(briefing.sections.map((s) => [s.heading, s.items])).toEqual([
+      ['Today’s results', [expect.stringMatching(/^13:30 US Weekly jobless claims/)]],
+      ['Alerts sent today', ['14:32 US Tech 100 up 1.1% today', '16:05 Spot Gold above 4,000.0']],
+      [
+        'Tomorrow’s releases',
+        [
+          'No US releases and no Fed, Bank of England or ECB decisions tomorrow.',
+          'Next high-severity event: Wednesday 27 January, 19:00 US Fed interest rate decision (FOMC).',
+        ],
+      ],
+    ]);
+    expect(summary).toBe(
+      '2 alerts today. No scheduled releases or central bank decisions tomorrow.',
+    );
+    expect(short).toBe(summary);
+    const checks = runAdviceChecks(text, {
+      requiresCitations: false,
+      citedIndexes: [],
+      retrievedIndexes: [],
+    });
+    expect(checks.filter((c) => !c.passed)).toEqual([]);
+  });
+
+  it('looks ahead to Monday on a Friday', async () => {
+    const friday = Date.parse('2026-12-18T21:30:00Z');
+    const { briefing } = await buildBrief(deps(friday), ['tomorrow'], 'end-of-day');
+    expect(briefing.sections[0]?.heading).toBe('Monday’s releases');
+    expect(briefing.sections[0]?.items[0]).toBe(
+      'No US releases and no Fed, Bank of England or ECB decisions on Monday.',
+    );
+  });
+
+  it('shows the watched markets from IG with what was alerted on them today', async () => {
+    const withIg: Config = {
+      ...config,
+      IG_API_KEY: 'd'.repeat(40),
+      IG_USERNAME: 'deskapi',
+      IG_PASSWORD: 'demo-password',
+    };
+    const base = net.fetch;
+    const igFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/session') && init?.method === 'POST') {
+        return new Response('{}', { headers: { CST: 'cst', 'X-SECURITY-TOKEN': 'token' } });
+      }
+      if (url.includes('/markets?epics=')) {
+        return Response.json({
+          marketDetails: [
+            {
+              instrument: { epic: NASDAQ, name: 'US Tech 100' },
+              snapshot: {
+                marketStatus: 'TRADEABLE',
+                bid: 28_300,
+                offer: 28_302,
+                netChange: 300,
+                percentageChange: 0,
+                decimalPlacesFactor: 1,
+              },
+            },
+          ],
+        });
+      }
+      return base(input, init);
+    }) as typeof fetch;
+    const igDeps = { config: withIg, store, fetch: igFetch, now: EVENING };
+    expect(
+      (await buildBrief(deps(), ['watchlist'], 'end-of-day')).briefing.sections[0]?.items,
+    ).toEqual(['Prices from IG are not set up yet.']);
+
+    await saveMarketWatch(
+      store,
+      { markets: [{ epic: NASDAQ, name: 'US Tech 100', stepPct: 1 }] },
+      EVENING,
+    );
+    await runMarketMoves(igDeps);
+    const { briefing, summary } = await buildBrief(igDeps, ['watchlist', 'alerts'], 'end-of-day');
+    expect(briefing.sections.map((s) => s.items)).toEqual([
+      ['US Tech 100: 28,301.0, up 1.1% on the day. Alerted at +1%.'],
+      ['21:30 US Tech 100 up 1.1% today'],
+    ]);
+    expect(summary).toBe('Your markets: US Tech 100 up 1.1%. 1 alert today.');
+  });
+
+  it('sends on its own schedule, apart from the morning brief', async () => {
+    await saveBrief(
+      deps(),
+      {
+        enabled: true,
+        time: '21:30',
+        days: [1, 2, 3, 4, 5],
+        channels: ['in-app', 'email'],
+        sections: ['results', 'tomorrow'],
+      },
+      'end-of-day',
+    );
+    expect(await runBrief(deps(), 'morning-brief')).toEqual({ status: 'off' });
+    expect(await runBrief(deps(), 'end-of-day')).toEqual({ status: 'ok', sent: true });
+    expect(await runBrief(deps(EVENING + 60_000), 'end-of-day')).toEqual({
+      status: 'ok',
+      sent: false,
+    });
+    expect(net.emails).toHaveLength(1);
+    expect(net.emails[0]?.subject).toMatch(/End-of-day recap, Thursday 17 December/);
+    expect((await loadBrief(store, 'end-of-day')).lastSentAt).toBe(new Date(EVENING).toISOString());
+    expect((await loadBrief(store)).lastSentAt).toBeUndefined();
+  });
+});
+
+describe('the weekly review', () => {
+  // Friday 18 December 2026, after the US close.
+  const FRIDAY = Date.parse('2026-12-18T22:00:00Z');
+  let store: ReturnType<typeof memoryStore>;
+  let net: ReturnType<typeof fakeNetwork>;
+  const deps = () => ({ config, store, fetch: net.fetch, now: FRIDAY });
+  const alert = (topic: NotificationEvent['topic'], title: string, at: string) =>
+    store.saveNotification(
+      {
+        id: `nev_${topic}${at.slice(8, 10)}${at.slice(11, 13)}`,
+        ref: 'NT-ABC123',
+        topic,
+        urgency: 'important',
+        title,
+        body: title,
+        createdAt: at,
+        deliveries: [],
+      },
+      false,
+    );
+
+  beforeEach(async () => {
+    store = memoryStore();
+    net = fakeNetwork();
+    await store.upsertReleases([
+      {
+        key: 'jobless-claims|2026-12-17',
+        event: 'jobless-claims',
+        releaseDate: '2026-12-17',
+        at: Date.parse('2026-12-17T13:30:00Z'),
+      },
+      {
+        key: 'gdp|2026-12-22',
+        event: 'gdp',
+        releaseDate: '2026-12-22',
+        at: Date.parse('2026-12-22T13:30:00Z'),
+      },
+    ]);
+  });
+
+  it('counts the week’s alerts, gives its figures and lists next week’s events', async () => {
+    await alert('price', 'US Tech 100 up 1.1% today', '2026-12-14T15:00:00Z');
+    await alert('price', 'Spot Gold above 4,000.0', '2026-12-16T16:05:00Z');
+    await alert('release', 'US Weekly jobless claims figures', '2026-12-17T13:31:00Z');
+    await alert('loss-limit', '50% of your daily loss limit used', '2026-12-18T15:00:00Z');
+    // Not counted: a briefing, and last week's alert.
+    await alert('briefing', 'Morning brief, Friday 18 December', '2026-12-18T08:00:00Z');
+    await alert('price', 'Wall Street down 1.0% today', '2026-12-11T15:00:00Z');
+
+    const { briefing, summary, text } = await buildBrief(
+      deps(),
+      ['week-alerts', 'week-results', 'journal', 'next-week'],
+      'weekly-review',
+    );
+    expect(briefing.title).toBe('Weekly review, Friday 18 December');
+    expect(briefing.sections.map((s) => [s.heading, s.items])).toEqual([
+      ['Alerts this week', ['Market moves and levels: 2.', 'Releases: 1.', 'Rule watch: 1.']],
+      ['This week’s results', [expect.stringMatching(/^13:30 US Weekly jobless claims/)]],
+      ['Journal prompts', expect.arrayContaining([expect.stringMatching(/\?$/)])],
+      ['Next week’s releases', [expect.stringMatching(/^Tue 22 Dec, 13:30 US .+ severity\.$/)]],
+    ]);
+    expect(summary).toMatch(/^4 alerts this week\./);
+    const checks = runAdviceChecks(text, {
+      requiresCitations: false,
+      citedIndexes: [],
+      retrievedIndexes: [],
+    });
+    expect(checks.filter((c) => !c.passed)).toEqual([]);
+  });
+
+  it('is offered on Friday evenings by default', async () => {
+    const schedule = await loadBrief(store, 'weekly-review');
+    expect(schedule).toMatchObject({ enabled: false, time: '22:00', days: [5] });
   });
 });

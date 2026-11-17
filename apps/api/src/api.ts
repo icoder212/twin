@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  briefingKindSchema,
   chosenChannels,
   economicWatchUpdateSchema,
   idSchema,
@@ -7,12 +8,16 @@ import {
   newsWatchUpdateSchema,
   notificationPreferencesSchema,
   urgencySchema,
+  ruleWatchUpdateSchema,
+  usageCapUpdateSchema,
   type AccountStatus,
   type Notification,
   type NotificationEvent,
+  marketSessionsUpdateSchema,
   marketWatchUpdateSchema,
 } from '@twindesk/core';
 import {
+  BRIEF_KINDS,
   briefState,
   briefUpdateSchema,
   buildBrief,
@@ -26,6 +31,9 @@ import { apiError, json, redirect, text, withCookies } from './http';
 import { IgError, searchMarkets } from './ig';
 import { interpret, InstructionError } from './instructions';
 import { marketsState, saveMarketWatch } from './market-moves';
+import { ruleWatchState, saveRuleLimits } from './rule-watch';
+import { saveSessions } from './session-notes';
+import { saveWhatsAppCap, usageState } from './usage';
 import { loadNewsWatch, newsState, saveNewsWatch } from './news';
 import { localTime, notify } from './notify';
 import { loadPreferences, savePreferences, serverContacts, serverPolicy } from './settings';
@@ -170,20 +178,22 @@ export async function handleApi(request: Request, url: URL, deps: ApiDeps): Prom
     }
     const brief = /^\/v1\/briefings\/([\w-]{1,32})(?:\/(preview|send))?$/.exec(url.pathname);
     if (brief) {
-      if (brief[1] !== 'morning-brief') {
-        return apiError(404, 'Only the morning brief is available on this server for now.');
-      }
+      const kind = briefingKindSchema.safeParse(brief[1]);
+      if (!kind.success) return apiError(404, 'There is no such briefing.');
       const briefDeps = { ...deps, now };
       switch (`${request.method} ${brief[2] ?? ''}`) {
         case 'PUT ': {
-          const saved = await saveBrief(briefDeps, await readBody(request, briefUpdateSchema));
-          if (!saved) return apiError(422, 'Pick at least one of markets, releases or news.');
-          return json(await briefState(briefDeps));
+          const input = await readBody(request, briefUpdateSchema);
+          const saved = await saveBrief(briefDeps, input, kind.data);
+          if (!saved) return apiError(422, 'Pick at least one section.');
+          return json(await briefState(briefDeps, kind.data));
         }
-        case 'GET preview':
-          return json((await buildBrief(briefDeps, (await loadBrief(store)).sections)).briefing);
+        case 'GET preview': {
+          const { sections } = await loadBrief(store, kind.data);
+          return json((await buildBrief(briefDeps, sections, kind.data)).briefing);
+        }
         case 'POST send':
-          return json(await sendBrief(briefDeps, await loadBrief(store)));
+          return json(await sendBrief(briefDeps, await loadBrief(store, kind.data)));
         default:
           return apiError(404, 'Not found.');
       }
@@ -243,7 +253,9 @@ export async function handleApi(request: Request, url: URL, deps: ApiDeps): Prom
         return json(event);
       }
       case 'GET /v1/briefings':
-        return json([await briefState({ ...deps, now })]);
+        return json(
+          await Promise.all(BRIEF_KINDS.map((kind) => briefState({ ...deps, now }, kind))),
+        );
       case 'GET /v1/economic':
         return json(await economicState({ ...deps, now }));
       case 'PUT /v1/economic/watch': {
@@ -282,6 +294,36 @@ export async function handleApi(request: Request, url: URL, deps: ApiDeps): Prom
         }
         await saveMarketWatch(store, watch, now);
         return json(await marketsState({ ...deps, now }));
+      }
+      case 'GET /v1/rules':
+        return json(await ruleWatchState({ ...deps, now }));
+      case 'PUT /v1/rules/watch': {
+        const { limits, channels } = await readBody(request, ruleWatchUpdateSchema);
+        if (channels) {
+          const preferences = await loadPreferences(store);
+          const routing = {
+            ...preferences.routing,
+            'loss-limit': ['in-app' as const, ...channels],
+          };
+          await savePreferences(store, { ...preferences, routing }, now);
+        }
+        await saveRuleLimits(store, limits, now);
+        return json(await ruleWatchState({ ...deps, now }));
+      }
+      case 'DELETE /v1/rules/watch':
+        await saveRuleLimits(store, null, now);
+        return json(await ruleWatchState({ ...deps, now }));
+      case 'PUT /v1/markets/sessions': {
+        const { sessions } = await readBody(request, marketSessionsUpdateSchema);
+        await saveSessions(store, sessions, now);
+        return json(await marketsState({ ...deps, now }));
+      }
+      case 'GET /v1/usage':
+        return json(await usageState({ ...deps, now }));
+      case 'PUT /v1/usage/cap': {
+        const { whatsappCap } = await readBody(request, usageCapUpdateSchema);
+        await saveWhatsAppCap(store, whatsappCap, now);
+        return json(await usageState({ ...deps, now }));
       }
       case 'DELETE /v1/markets/watch':
         await saveMarketWatch(store, null, now);

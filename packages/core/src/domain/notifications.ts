@@ -331,7 +331,7 @@ export type NotificationEvent = z.infer<typeof notificationEventSchema>;
 // Scheduled briefings
 // ---------------------------------------------------------------------------
 
-export const BRIEFING_KINDS = ['morning-brief', 'end-of-day'] as const;
+export const BRIEFING_KINDS = ['morning-brief', 'end-of-day', 'weekly-review'] as const;
 export const briefingKindSchema = z.enum(BRIEFING_KINDS);
 export type BriefingKind = z.infer<typeof briefingKindSchema>;
 
@@ -347,8 +347,13 @@ export const BRIEFING_SECTIONS = [
   'news',
   'sources',
   'session-summary',
+  'watchlist',
+  'alerts',
   'journal',
   'tomorrow',
+  'week-alerts',
+  'week-results',
+  'next-week',
 ] as const;
 export const briefingSectionSchema = z.enum(BRIEFING_SECTIONS);
 export type BriefingSection = z.infer<typeof briefingSectionSchema>;
@@ -376,7 +381,23 @@ export const BRIEFING_META: Record<
   'end-of-day': {
     title: 'End-of-day recap',
     description: 'What happened today against your rules, and what is on tomorrow.',
-    sections: ['session-summary', 'limits', 'journal', 'approvals', 'tomorrow'],
+    sections: [
+      'session-summary',
+      'watchlist',
+      'markets',
+      'movers',
+      'results',
+      'alerts',
+      'limits',
+      'journal',
+      'approvals',
+      'tomorrow',
+    ],
+  },
+  'weekly-review': {
+    title: 'Weekly review',
+    description: 'Your week in alerts and figures, with journal prompts and next week’s releases.',
+    sections: ['week-alerts', 'week-results', 'journal', 'next-week'],
   },
 };
 
@@ -392,8 +413,13 @@ export const BRIEFING_SECTION_LABELS: Record<BriefingSection, string> = {
   news: 'News on your instruments',
   sources: 'Data source health',
   'session-summary': 'Today against your rules',
+  watchlist: 'Your markets today',
+  alerts: 'Alerts sent today',
   journal: 'Journal prompts',
   tomorrow: 'Tomorrow’s releases',
+  'week-alerts': 'Alerts this week',
+  'week-results': 'This week’s results',
+  'next-week': 'Next week’s releases',
 };
 
 export const briefingScheduleSchema = z.object({

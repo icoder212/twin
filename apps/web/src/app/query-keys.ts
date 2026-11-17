@@ -19,6 +19,8 @@ export const qk = {
   news: ['news'] as const,
   markets: ['markets'] as const,
   marketSearch: (term: string) => ['markets', 'search', term] as const,
+  usage: ['usage'] as const,
+  rules: ['rules'] as const,
   notifyRoot: ['notify'] as const,
   notificationPrefs: ['notify', 'preferences'] as const,
   contacts: ['notify', 'contacts'] as const,

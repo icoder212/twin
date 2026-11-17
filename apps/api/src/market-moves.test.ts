@@ -162,6 +162,44 @@ describe('market move alerts', () => {
     expect(net.calls.whatsapp.at(-1)).toBe('US Tech 100: up 1.2% today at 28,641.0');
   });
 
+  it('alerts when the price crosses a level, once each way a day', async () => {
+    const quotes: Record<string, Quote> = { [NASDAQ]: { bid: 27_990, netChange: -10 } };
+    const store = memoryStore();
+    const net = fakeNet(quotes);
+    await saveMarketWatch(
+      store,
+      { markets: [{ epic: NASDAQ, name: 'US Tech 100', stepPct: 1, levels: [28_000] }] },
+      NOW,
+    );
+    const run = (minutes: number) =>
+      runMarketMoves({ config, store, fetch: net.fetch, now: NOW + minutes * 60_000 });
+
+    // The first sighting records the side without an alert.
+    expect(await run(0)).toEqual({ status: 'ok', sent: 0 });
+
+    quotes[NASDAQ] = { bid: 28_010, netChange: 10 };
+    expect(await run(1)).toEqual({ status: 'ok', sent: 1 });
+    expect(net.calls.whatsapp).toEqual(['US Tech 100: crossed above 28,000.0, now at 28,011.0']);
+
+    quotes[NASDAQ] = { bid: 27_980, netChange: -20 };
+    expect(await run(2)).toEqual({ status: 'ok', sent: 1 });
+    expect(net.calls.whatsapp.at(-1)).toBe('US Tech 100: crossed below 28,000.0, now at 27,981.0');
+
+    // Back above: that way was already sent today.
+    quotes[NASDAQ] = { bid: 28_020, netChange: 20 };
+    expect(await run(3)).toEqual({ status: 'ok', sent: 0 });
+    const state = await marketsState({ config, store, fetch: net.fetch, now: NOW });
+    expect(state.quotes[0]?.crossed).toEqual([
+      { level: 28_000, way: 'up' },
+      { level: 28_000, way: 'down' },
+    ]);
+
+    // A new trading day, opening below the level: crossed overnight, so it alerts again.
+    quotes[NASDAQ] = { bid: 27_900, netChange: -120 };
+    expect(await run(60 * 24)).toEqual({ status: 'ok', sent: 1 });
+    expect(net.calls.whatsapp.at(-1)).toBe('US Tech 100: crossed below 28,000.0, now at 27,901.0');
+  });
+
   it('ignores markets that are not trading', async () => {
     const { run } = await setUp({
       [NASDAQ]: { bid: 28_600, netChange: 600, status: 'CLOSED' },

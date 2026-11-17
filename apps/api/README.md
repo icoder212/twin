@@ -80,8 +80,17 @@ do not hold it. It has six sections:
   two), each marked high or medium severity by its kind of event;
 - headlines on what the owner follows from the last 24 hours.
 
-Email carries the whole brief; the app and WhatsApp get a short summary. Only the morning brief is
-offered here; the end-of-day recap stays in the demo.
+Email carries the whole brief; the app and WhatsApp get a short summary.
+
+**End-of-day recap:** set beside the morning brief (21:30 on weekdays by default, after the US
+close). It has six sections: the watched markets from IG with the steps and levels alerted today;
+markets at the last close; the biggest moves; the figures today's US releases published; the
+alerts sent today; and the next weekday's releases and central bank decisions (Monday's on a
+Friday).
+
+**Weekly review:** Friday at 22:00 by default. It counts the week's alerts by kind, gives the
+figures this week's US releases published, asks three journal questions, and lists next week's
+releases and central bank decisions.
 
 ## Security
 
@@ -169,8 +178,33 @@ Watch markets from the Notifications page. Each minute the server reads the watc
 IG in one request. A market alerts the first time its move on the day reaches each new step, up
 or down: with a 1% step, at +1%, +2% and so on, and at −1%, −2% and so on. IG measures the day's
 change on the bid, so bid minus change is the previous close; when that changes, a new trading
-day has started and the steps begin again. There are at most 40 alerts a day. Alerts use the
-`price` routing (the app and WhatsApp by default) and the update template.
+day has started and the steps begin again. Each market can also have up to five price levels:
+one alerts when the mid price crosses it, once each way a trading day (a crossing overnight counts
+at the next session's first price). There are at most 40 alerts a day. Alerts use the `price`
+routing (the app and WhatsApp by default) and the update template.
+
+**Notes before the open:** chosen in the same card, a note 10 minutes before the London (08:00
+London time) and New York (09:30 New York time) opens on weekdays, with the watched markets
+against the last close and the releases and decisions due in the first hour. Bank holidays are
+not skipped.
+
+## Rule watch (IG account)
+
+With limits set in the Rule watch card (a daily loss limit, and optionally a maximum drawdown,
+in the account's currency), the cron reads the preferred IG account each minute: balance plus
+open profit or loss is the equity. The day's loss is measured from the first reading after
+midnight UK time and the drawdown from the highest equity seen; a new high clears the drawdown
+alerts. An alert (topic `loss-limit`) goes out the first time each of 50%, 75%, 90% and 100% of
+a limit is reached, critical from 90%. Changing the limits keeps the day's starting point. The
+app also shows the open positions. Every IG call is a GET, apart from the login.
+
+## Usage and the WhatsApp cap
+
+`GET /v1/usage` counts this month's deliveries by channel (on the owner's clock) and reads the
+Twilio balance and this month's spend (`Usage/Records/ThisMonth`, category `totalprice`).
+`PUT /v1/usage/cap` sets a monthly cap on WhatsApp messages: once that many have gone this month,
+WhatsApp is skipped, with the reason in the log, and the app and email carry on. The cap sits
+beside `TWILIO_MIN_BALANCE`, which stops sending when the balance falls to it.
 
 Set up once, on IG's API keys page, Demo accounts tab:
 

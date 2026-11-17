@@ -13,6 +13,7 @@ const watching: MarketsState = {
   available: true,
   watch: { markets: [{ epic: NASDAQ, name: 'US Tech 100', stepPct: 1 }] },
   channels: ['in-app', 'whatsapp'],
+  sessions: [],
   quotes: [
     {
       epic: NASDAQ,
@@ -55,6 +56,10 @@ beforeAll(() => {
     if (url.pathname === '/v1/markets/watch' && method === 'PUT') {
       const { watch } = body as { watch: MarketWatch };
       server.state = { ...server.state, watch };
+    }
+    if (url.pathname === '/v1/markets/sessions' && method === 'PUT') {
+      const { sessions } = body as { sessions: MarketsState['sessions'] };
+      server.state = { ...server.state, sessions };
     }
     if (url.pathname === '/v1/markets/watch' && method === 'DELETE') {
       server.state = { ...server.state, watch: null, quotes: [] };
@@ -107,6 +112,41 @@ describe('MarketMovesCard', () => {
     expect(
       await screen.findByRole('button', { name: 'Spot Gold is already added' }),
     ).toBeDisabled();
+  });
+
+  it('adds a price level to a market, and removes it again', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<MarketMovesCard />);
+    await user.type(await screen.findByLabelText('Add a level for US Tech 100'), '28,500');
+    await user.click(screen.getByRole('button', { name: 'Level' }));
+    await waitFor(() =>
+      expect(server.calls.findLast((c) => c.method === 'PUT')?.body).toEqual({
+        watch: { markets: [{ epic: NASDAQ, name: 'US Tech 100', stepPct: 1, levels: [28_500] }] },
+      }),
+    );
+
+    const levels = await screen.findByRole('list', { name: 'Levels for US Tech 100' });
+    expect(within(levels).getByText('28,500.0')).toBeVisible();
+    expect(within(levels).getByText('price below')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Remove level 28,500.0 for US Tech 100' }));
+    await waitFor(() =>
+      expect(server.calls.findLast((c) => c.method === 'PUT')?.body).toEqual({
+        watch: { markets: [{ epic: NASDAQ, name: 'US Tech 100', stepPct: 1 }] },
+      }),
+    );
+  });
+
+  it('turns on a note before the New York open', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<MarketMovesCard />);
+    await user.click(await screen.findByLabelText('New York open (09:30 New York time)'));
+    await waitFor(() =>
+      expect(server.calls.findLast((c) => c.path === '/v1/markets/sessions')?.body).toEqual({
+        sessions: ['new-york'],
+      }),
+    );
+    expect(await screen.findByLabelText('New York open (09:30 New York time)')).toBeChecked();
   });
 
   it('changes the step, and stops watching when the last market is removed', async () => {

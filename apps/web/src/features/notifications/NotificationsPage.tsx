@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router';
 import { InstructionsCard } from '@/features/account/InstructionsCard';
 import { MarketMovesCard } from '@/features/account/MarketMovesCard';
 import { RealAccountPanel } from '@/features/account/RealAccountPanel';
+import { RuleWatchCard } from '@/features/account/RuleWatchCard';
+import { UsageCard } from '@/features/account/UsageCard';
 import { Page, PageHeader } from '@/shared/components/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/menu';
 import { BriefingsTab } from './BriefingsTab';
@@ -47,7 +49,9 @@ export function NotificationsPage() {
       />
       <RealAccountPanel />
       <InstructionsCard />
+      <RuleWatchCard />
       <MarketMovesCard />
+      <UsageCard />
       <Tabs value={active} onValueChange={select}>
         <TabsList aria-label="Notification sections" className="w-full sm:w-auto">
           {TABS.map(({ id, label, short, icon: Icon }) => (

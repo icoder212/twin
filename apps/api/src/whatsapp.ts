@@ -153,6 +153,49 @@ async function twilioBalance(config: Config, fetchFn: typeof fetch): Promise<num
 }
 
 /**
+ * The Twilio balance and this month's total spend, for the app's usage view. Null without a
+ * Twilio account; a figure that cannot be read is null.
+ */
+export async function twilioAccount(
+  config: Config,
+  fetchFn: typeof fetch,
+): Promise<{ balance: number | null; currency: string | null; spent: number | null } | null> {
+  if (
+    config.WHATSAPP_PROVIDER !== 'twilio' ||
+    !config.TWILIO_ACCOUNT_SID ||
+    !config.TWILIO_AUTH_TOKEN
+  ) {
+    return null;
+  }
+  const account = `${TWILIO_API}/${encodeURIComponent(config.TWILIO_ACCOUNT_SID)}`;
+  const read = async (path: string) => {
+    try {
+      const response = await fetchFn(`${account}${path}`, {
+        headers: { Authorization: twilioAuth(config) },
+      });
+      return response.ok ? ((await response.json()) as unknown) : null;
+    } catch {
+      return null;
+    }
+  };
+  const [balance, usage] = await Promise.all([
+    read('/Balance.json') as Promise<{ balance?: unknown; currency?: unknown } | null>,
+    read('/Usage/Records/ThisMonth.json?Category=totalprice') as Promise<{
+      usage_records?: Array<{ price?: unknown }>;
+    } | null>,
+  ]);
+  const number = (value: unknown) => {
+    const n = Number(value);
+    return value !== undefined && value !== null && Number.isFinite(n) ? n : null;
+  };
+  return {
+    balance: number(balance?.balance),
+    currency: typeof balance?.currency === 'string' ? balance.currency.slice(0, 8) : null,
+    spent: number(usage?.usage_records?.[0]?.price),
+  };
+}
+
+/**
  * Sends through Twilio with a content template, so it arrives whenever it is due rather than
  * only within 24 hours of a message from the owner. Returns Twilio's message SID.
  */
